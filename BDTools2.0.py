@@ -3,12 +3,12 @@
 Liyao Zhang
 
 Start Date 1/10/2022
-End Date 1/21/2022
+End Date 1/26/2022
 
 TO-DO:
     1.空间可视化模块
-    -加载深圳市天地图 key: abc457154134c560ff8e160e0c509be5
-    -点转为100x100栅格
+    -(✔)加载深圳市天地图 key: abc457154134c560ff8e160e0c509be5
+    -(进行中)点转为100x100网格
     -创建用户定义可视化参数界面（颜色、数值范围、断点方式、k、透明度）
     2.增加统计描述模块
     3.增加POI分析？（核密度）
@@ -22,8 +22,27 @@ import xlsxwriter
 import matplotlib.pyplot as plt
 from gooey import Gooey, GooeyParser
 from GCS_Conversion import gcj2wgs
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 
+import cartopy.io.img_tiles as cimgt
+import cartopy.crs as ccrs
+from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
+
+# 天地图矢量底图
+class TDT_vec(cimgt.GoogleWTS):
+    def _image_url(self, tile):
+        x, y, z = tile
+        key = 'abc457154134c560ff8e160e0c509be5'
+        url = 'http://t0.tianditu.gov.cn/DataServer?T=vec_w&x=%s&y=%s&l=%s&tk=%s' % (x, y, z, key)
+        return url
+# 天地图矢量注记
+class TDT_cva(cimgt.GoogleWTS):
+    def _image_url(self, tile):
+        x, y, z = tile
+        key = 'abc457154134c560ff8e160e0c509be5'
+        url = 'http://t0.tianditu.gov.cn/DataServer?T=cva_w&x=%s&y=%s&l=%s&tk=%s' % (x, y, z, key)
+        return url
+    
 plt.rcParams["font.family"] = "SimHei"
 
 @Gooey(program_name="BDTools",
@@ -602,14 +621,32 @@ def por_merge(num, df):
 
 def export_plot(dfy, dfb, plot_path, variable):
     print('正在绘图中...')
-    fig, ax = plt.subplots(1, figsize=(12, 8))
-    dfy.boundary.plot(ax=ax, edgecolor='k', zorder=1) #绘制范围底图
+    #加载天地图底图
+    fig = plt.figure(figsize=(12, 8))
+    ax = fig.add_subplot(1, 1, 1, projection=ccrs.epsg('4526'))
+    ax.set_extent([dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100, dfy['geometry'].total_bounds[3]+100],crs=ccrs.epsg('4526'))
+    request = TDT_vec()
+    ax.add_image(request, 15)
+    ax.set_title('天地图矢量底图',fontsize=15)
+    gl = ax.gridlines(draw_labels=True, linewidth=0, color='k', alpha=0.5)
+    gl.top_labels = True 
+    gl.xformatter = LONGITUDE_FORMATTER 
+    gl.yformatter = LATITUDE_FORMATTER
+    #绘制渔网图
+    coord1 = (dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[3]+100)
+    coord3 = (dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100)
+    coord2 = (coord3[0],coord1[1])
+    coord4 = (coord1[0],coord3[1])
+    rectangle = Polygon([coord1,coord2,coord3,coord4])
+    rectangle = gpd.GeoDataFrame([rectangle],columns=['geometry'])
+    #FIXME
+    dfy.boundary.plot(ax=ax, edgecolor='k', zorder=1) #绘制范围
     dfb.plot(column=variable, ax=ax, cmap='OrRd', scheme='natural_breaks', k=5, vmin=1, zorder=2, legend=True, legend_kwds={"fmt": "{:.0f}",
                                                                                                                             'loc': 'lower right',
                                                                                                                             'title': '图例',
-                                                                                                                            'shadow': True}) #绘制点状图
+                                                                                                                            'shadow': True}) #绘制点状图   
     ax.axis('off')
-    fig.savefig(plot_path, dpi=300)    
+    fig.savefig(plot_path, dpi=400)    
 
 if __name__ == "__main__":
     main()
