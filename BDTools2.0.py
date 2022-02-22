@@ -1,48 +1,52 @@
 # -*- coding: utf-8 -*-
 """
-Liyao Zhang
-
+BDTools V2.0
+@Liyao Zhang
 Start Date 1/10/2022
-End Date 1/26/2022
+End Date 2/22/2022
 
 TO-DO:
+    0.I/O
+    -支持csv/gdb文件图层读取
     1.空间可视化模块
-    -(✔)加载深圳市天地图 key: abc457154134c560ff8e160e0c509be5
-    -(进行中)点转为100x100网格
-    -创建用户定义可视化参数界面（颜色、数值范围、断点方式、k、透明度）
-    2.增加统计描述模块
-    3.增加POI分析？（核密度）
-
-BDTools V2.0
+    -(✔)加载深圳市天地图
+    -(✔)点转为100x100网格
+    -(✔)加载mapbox底图
+    -(✔)图例样式修改
+    -(✔)创建用户定义可视化参数界面（标题、底图、网格大小、颜色、数值范围、k、断点方式、透明度等）
+    -(进行中)根据数据类型和实际需求出不同图（样方密度/饼状图/核密度/OD图）
+    -增加POI分析（核密度）
+    2.建立空间数据库，上传范围后实时加载调用范围内数据
 """
 import pandas as pd
 import geopandas as gpd
 import numpy as np
 import xlsxwriter
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import mapclassify as mc
 from gooey import Gooey, GooeyParser
 from GCS_Conversion import gcj2wgs
 from shapely.geometry import Point, Polygon
-
 import cartopy.io.img_tiles as cimgt
 import cartopy.crs as ccrs
-from cartopy.mpl.gridliner import LONGITUDE_FORMATTER, LATITUDE_FORMATTER
 
-# 天地图矢量底图
+# MapBox底图
+class MB_vec(cimgt.GoogleWTS):
+    def _image_url(self, tile):
+        x, y, z = tile
+        #'sk.eyJ1IjoianVkZDE0N3QiLCJhIjoiY2t6b3g5bzJnMGh3ZTJvcW13NWZ5ZWhieSJ9.oJ8Vr-ttT0S5gA3uquL2LA' https://api.mapbox.com/styles/v1/mapbox/light-v10/tiles
+        access_token = 'pk.eyJ1IjoianVkZDE0N3QiLCJhIjoiY2t6b3d4cjJsM2NuOTJxbnJsaXBrandobyJ9.VXx0tjmrPmujViEjYFgMqg'
+        url = (f'https://api.mapbox.com/styles/v1/judd147t/ckzqqirua00nu14l980idnr9s/tiles/256'
+               f'/{z}/{x}/{y}?access_token={access_token}'.format(z=z, y=y, x=x, token=access_token))
+        return url
+# 天地图底图
 class TDT_vec(cimgt.GoogleWTS):
     def _image_url(self, tile):
         x, y, z = tile
         key = 'abc457154134c560ff8e160e0c509be5'
         url = 'http://t0.tianditu.gov.cn/DataServer?T=vec_w&x=%s&y=%s&l=%s&tk=%s' % (x, y, z, key)
         return url
-# 天地图矢量注记
-class TDT_cva(cimgt.GoogleWTS):
-    def _image_url(self, tile):
-        x, y, z = tile
-        key = 'abc457154134c560ff8e160e0c509be5'
-        url = 'http://t0.tianditu.gov.cn/DataServer?T=cva_w&x=%s&y=%s&l=%s&tk=%s' % (x, y, z, key)
-        return url
-    
 plt.rcParams["font.family"] = "SimHei"
 
 @Gooey(program_name="BDTools",
@@ -71,8 +75,20 @@ plt.rcParams["font.family"] = "SimHei"
 )
 def main():
     parser = GooeyParser()
-    
     # *** 界面搭建及参数获取 *** #
+    #可视化参数
+    group_vis = parser.add_argument_group('可视化设置', '选择默认参数或自定义参数', gooey_options={"columns": 2})
+    group_vis.add_argument('-title', metavar='图片标题', widget="TextField", default='无标题')
+    group_vis.add_argument('-basemap', metavar='底图样式', choices=['Mapbox','天地图'], default='Mapbox')
+    group_vis.add_argument('-cellsize', metavar='网格大小', help='单位:米', choices=['100','200','500','1000'], default='100')
+    #FIXME 添加palettable颜色
+    group_vis.add_argument('-cmap', metavar='色调', choices=['Greys','Reds','Oranges','OrRd','YlOrRd','YlOrBr','YlGnBu','hot','Spectral'], default='OrRd')
+    group_vis.add_argument('-vmin', metavar='最小值', help='取值范围', widget="Slider", default=1)
+    group_vis.add_argument('-k', metavar='数据分层数', widget="Slider", default=5)
+    #FIXME 添加用户自定义断点
+    group_vis.add_argument('-scheme', metavar='断点方式', choices=['equal_interval','fisher_jenks','headtail_breaks','jenks_caspall','natural_breaks','quantiles','user_defined'], default='natural_breaks')
+    group_vis.add_argument('-alpha', metavar='透明度', help='0-1之间', widget="DecimalField", default=1)
+    
     #shp转excel
     group0 = parser.add_argument_group('shp转excel', '可用于申请范围内整体画像、通勤方式等含比例数据', gooey_options={"columns": 1})
     group0.add_argument('-geo', metavar='shp文件所在路径', help="例如: 桃源村地铁站500m范围.shp", widget="FileChooser", nargs='?')
@@ -217,8 +233,8 @@ def main():
         print('空间相交完成!')
         dfb.to_csv(args.out_num_pop+'\客流数量.csv', encoding='UTF-8')
         print('文件已成功保存至', args.out_num_pop)
-        plot_path = args.out_num_pop+'\\test.jpg'
-        export_plot(dfy, dfb, plot_path, '人数')
+        plot_path = args.out_num_pop+'\\客流数量样方密度.jpg'
+        export_plot(dfy, dfb, plot_path, '人数', args)
         print('图像已成功保存至', args.out_num_pop)
         print('==============================================================')
         
@@ -236,6 +252,9 @@ def main():
         print('空间相交完成!')
         dfb.to_csv(args.out_por_pop+'\客流画像.csv', encoding='UTF-8')
         print('文件已成功保存至', args.out_por_pop)
+        plot_path = args.out_por_pop+'\\客流画像饼状图.jpg'
+        export_pie(dfb, plot_path)
+        print('图像已成功保存至', args.out_por_pop)   
         print('==============================================================')
 
     #常住数量
@@ -395,6 +414,8 @@ def read_file(data, geofile):
     print('正在读取文件...')
     if data.__contains__('.txt'):
         df = pd.read_csv(data, sep="\t")
+    elif data.__contains__('.csv'):
+        df = pd.read_csv(data)
     else:
         print('非法数据文件类型！')
     if geofile.__contains__('.shp'):
@@ -619,19 +640,23 @@ def por_merge(num, df):
     df_final.update(df_final.iloc[:, 5:53].mul(df_final.人数, 0))
     return df_final
 
-def export_plot(dfy, dfb, plot_path, variable):
+def export_plot(dfy, dfb, plot_path, variable, args):
     print('正在绘图中...')
-    #加载天地图底图
+    #参数转换数值
+    args.cellsize = int(args.cellsize)
+    args.vmin = int(args.vmin)
+    args.k = int(args.k)
+    args.alpha = float(args.alpha)
+    #加载底图
     fig = plt.figure(figsize=(12, 8))
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.epsg('4526'))
     ax.set_extent([dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100, dfy['geometry'].total_bounds[3]+100],crs=ccrs.epsg('4526'))
-    request = TDT_vec()
+    if args.basemap == '天地图':
+        request = TDT_vec()
+    elif args.basemap == 'Mapbox':
+        request = MB_vec()
     ax.add_image(request, 15)
-    ax.set_title('天地图矢量底图',fontsize=15)
-    gl = ax.gridlines(draw_labels=True, linewidth=0, color='k', alpha=0.5)
-    gl.top_labels = True 
-    gl.xformatter = LONGITUDE_FORMATTER 
-    gl.yformatter = LATITUDE_FORMATTER
+    ax.set_title(args.title, fontsize=15)
     #绘制渔网图
     coord1 = (dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[3]+100)
     coord3 = (dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100)
@@ -639,14 +664,92 @@ def export_plot(dfy, dfb, plot_path, variable):
     coord4 = (coord1[0],coord3[1])
     rectangle = Polygon([coord1,coord2,coord3,coord4])
     rectangle = gpd.GeoDataFrame([rectangle],columns=['geometry'])
-    #FIXME
-    dfy.boundary.plot(ax=ax, edgecolor='k', zorder=1) #绘制范围
-    dfb.plot(column=variable, ax=ax, cmap='OrRd', scheme='natural_breaks', k=5, vmin=1, zorder=2, legend=True, legend_kwds={"fmt": "{:.0f}",
-                                                                                                                            'loc': 'lower right',
-                                                                                                                            'title': '图例',
-                                                                                                                            'shadow': True}) #绘制点状图   
+    rectangle = rectangle.set_crs(epsg=4526)
+    coords = rectangle['geometry'].bounds.values[0]
+    loc_all = '{},{},{},{}'.format(coords[0],coords[3],coords[2],coords[1])
+    nets = lng_lat(loc_all, args.cellsize)
+    netfish = gpd.GeoDataFrame([getPolygon(i[0],i[1]) for i in nets],columns=['geometry'])
+    netfish = netfish.set_crs(epsg=4526)
+    #渔网与dfb空间相交
+    del dfb['index_right']
+    dfo = gpd.sjoin(netfish, dfb, op='contains')
+    dfy.boundary.plot(ax=ax, linestyle='--', edgecolor='grey', zorder=2) #绘制范围
+    dfo = dfo[dfo[variable]>=args.vmin]
+    dfo.plot(column=variable, ax=ax, cmap=args.cmap, scheme=args.scheme, k=args.k, alpha=args.alpha, zorder=1) #绘制样方密度图
+    #自定义图例
+    handles, labels = ax.get_legend_handles_labels()
+    cmap = plt.get_cmap(args.cmap)
+    if args.scheme == 'natural_breaks':
+        nb = mc.NaturalBreaks(dfo[variable], k=args.k)
+    elif args.scheme == 'equal_interval':
+        nb = mc.EqualInterval(dfo[variable], k=args.k)
+    elif args.scheme == 'fisher_jenks':
+        nb = mc.FisherJenks(dfo[variable], k=args.k)
+    elif args.scheme == 'headtail_breaks':
+        nb = mc.HeadTailBreaks(dfo[variable], k=args.k)
+    elif args.scheme == 'jenks_caspall':
+        nb = mc.JenksCaspall(dfo[variable], k=args.k)
+    elif args.scheme == 'quantiles':
+        nb = mc.Quantiles(dfo[variable], k=args.k)
+    elif args.scheme == 'user_defined':
+        print('此功能暂未开放')      
+    bins = nb.bins
+    LegendElement = [mpatches.Patch(facecolor=cmap(0), label=f'{args.vmin} - {int(bins[0])}')] + [mpatches.Patch(facecolor=cmap(_*0.25), label=f'{int(bins[_-1])} - {int(bins[_])}') for _ in range(1,args.k)]
+    ax.legend(handles = LegendElement, loc='lower right', fontsize=10, title='图例', shadow=True)
     ax.axis('off')
-    fig.savefig(plot_path, dpi=400)    
+    fig.savefig(plot_path, dpi=400)
+
+def export_pie(dfb, plot_path):
+    print('qnmd')
+    #性别、年龄、教育水平、收入水平（工作、行业）
+    #FIXME
+    
+
+#切割渔网
+def lng_lat(loc_all, div):
+    #提取经纬度
+    lngH = float(loc_all.split(',')[2])
+    lngL = float(loc_all.split(',')[0])
+    latH = float(loc_all.split(',')[1])
+    latL = float(loc_all.split(',')[3])
+    #按照一个数值切割纬度
+    lat_ls = [str(latH)]
+    while latH - latL > 0:
+        latH = latH - div
+        lat_ls.append('{:.2f}'.format(latH))
+    #按照一个数值切割经度
+    lng_ls = [str(lngH)]
+    while lngH - lngL > 0:
+        lngH = lngH - div
+        lng_ls.append('{:.2f}'.format(lngH))
+    #获取经纬度列表
+    lat = lat_ls
+    lng = sorted(lng_ls)
+    #组合经纬度成为坐标
+    lst = []
+    for a in lat:
+        for n in lng:
+            lst.append('{},{}'.format(n, a))
+    #创建一个嵌套列表，便于后面进行坐标串组合
+    lst1 = []
+    for i in range(len(lat)):
+        lst1.append(lst[i * len(lng):(i + 1) * len(lng)])
+    #坐标串组合
+    lsta = []
+    for a in range(0, len(lat) - 1):
+        for n in range(0, len(lng) - 1):
+            coords = (float(lst1[a][n].split(',')[0]),float(lst1[a][n].split(',')[1])),\
+                     (float(lst1[a+1][n+1].split(',')[0]),float(lst1[a+1][n+1].split(',')[1]))
+            lsta.append(coords)
+    return lsta
+
+def getPolygon(coord1,coord3):
+    coord1 = coord1
+    coord3 = coord3
+    coord2 = (coord3[0],coord1[1])
+    coord4 = (coord1[0],coord3[1])
+    rectangle = Polygon([coord1,coord2,coord3,coord4])
+    return rectangle
 
 if __name__ == "__main__":
     main()
