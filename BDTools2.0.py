@@ -3,7 +3,7 @@
 BDTools V2.0
 @Liyao Zhang
 Start Date 1/10/2022
-Last Edit 3/3/2022
+Last Edit 3/4/2022
 
 地理坐标系 EPSG 4326/4490 投影坐标系 EPSG 4547/4526
 常住人口自定义断点 100米 80,200,400,800；500米 2000,5000,10000,20000
@@ -134,7 +134,7 @@ def main():
     group6.add_argument('-num_live_geo', metavar='居住范围文件所在路径', help="例如: 五和地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group6.add_argument('-num_work_geo', metavar='工作范围文件所在路径', help="例如: 桃源村地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group6.add_argument('-out_num_lw', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
-    group6.add_argument('--rev1', metavar='可选分析', action='store_true', help='居住地工作地交换')
+    group6.add_argument('--rev1', metavar='可选分析', action='store_true', help='居住地上传分析范围，工作地上传辐射范围(如全市范围)，生成分析范围内居住人口在全市工作地分布及范围内就业人口在全市居住地分布')
     
     #通勤时间
     group7 = parser.add_argument_group('通勤时间', '反映工作人口或居住人口来源地及通勤时间', gooey_options={"columns": 1})
@@ -142,6 +142,7 @@ def main():
     group7.add_argument('-time_live_geo', metavar='居住范围文件所在路径', help="例如: 五和地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group7.add_argument('-time_work_geo', metavar='工作范围文件所在路径', help="例如: 桃源村地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group7.add_argument('-out_time_lw', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
+    group7.add_argument('--rev2', metavar='可选分析', action='store_true', help='居住地上传分析范围，工作地上传辐射范围(如全市范围)，生成分析范围内居住人口前往全市通勤时间分布及范围内就业人口从全市出发通勤时间分布')
     
     #通勤方式
     group8 = parser.add_argument_group('通勤方式', '反映工作人口或居住人口来源地及通勤方式', gooey_options={"columns": 1})
@@ -375,14 +376,8 @@ def main():
         if df.columns.__contains__('小时') and args.opt6:
             df = OD_agg_time(df, args)
             print('全天数量计算完成!')
-        #起点范围
-        if args.O_geo and not args.D_geo:
-            dfb = O_intersect(df, dfy)
-        #终点范围
-        elif args.D_geo and not args.O_geo:
-            dfb = D_intersect(df, dfy2)
         #两个范围
-        elif args.O_geo and args.D_geo:
+        if args.O_geo and args.D_geo:
             temp = O_intersect(df, dfy)
             dfb = D_intersect(temp, dfy2)
         else:
@@ -401,16 +396,10 @@ def main():
         if args.wgs:
             df = livework_to_wgs(df)
             print('坐标转换完成!')
-        #起点范围
-        if args.num_live_geo and not args.num_work_geo:
-            dfb = O_intersect(df, dfy)
-        #终点范围
-        elif args.num_work_geo and not args.num_live_geo:
-            dfb = D_intersect(df, dfy2)
-        #两个范围不互换
-        elif args.num_live_geo and args.num_work_geo and not args.rev1:
+        #两个范围
+        if args.num_live_geo and args.num_work_geo and not args.rev1:
             temp = O_intersect(df, dfy)
-            dfb = D_intersect(temp, dfy2)       
+            dfb = D_intersect(temp, dfy2)    
         #两个范围互换
         elif args.num_live_geo and args.num_work_geo and args.rev1:
             args.cellsize = 500 #临时使用
@@ -422,12 +411,13 @@ def main():
             args.title = '居住人口工作地分布'
             export_plot(dfy2, df_O, plot_path, '人数', args)
             
-            temp = D_intersect(df, dfy) #转换描点范围
-            df_D = OD_plot(temp, dfy, 'D')
+            temp = D_intersect(df, dfy) 
+            df_D = OD_plot(temp, dfy, 'D') #转换描点范围
             filename = '\就业人口通勤数量.csv'
             plot_path = args.out_num_lw+'\\就业人口居住地分布.jpg'
             args.title = '就业人口居住地分布'
             export_plot(dfy2, df_D, plot_path, '人数', args)
+            dfb = df_D
         else:
             dfb = df
             filename = '\通勤数量_wgs84.csv'
@@ -445,16 +435,28 @@ def main():
             df = livework_to_wgs(df)
             print('坐标转换完成!')
         df['平均通勤时间(min)'] = df['平均通勤时间(s)']/60
-        #起点范围
-        if args.time_live_geo and not args.time_work_geo:
-            dfb = O_intersect(df, dfy)
-        #终点范围
-        elif args.time_work_geo and not args.time_live_geo:
-            dfb = D_intersect(df, dfy2)
         #两个范围
-        elif args.time_live_geo and args.time_work_geo:
+        if args.time_live_geo and args.time_work_geo and not args.rev2:
             temp = O_intersect(df, dfy)
-            dfb = D_intersect(temp, dfy2)
+            dfb = D_intersect(temp, dfy2)    
+        #两个范围互换
+        elif args.time_live_geo and args.time_work_geo and args.rev2:
+            args.cellsize = 500 #临时使用
+            temp = O_intersect(df, dfy)
+            df_O = OD_plot(temp, dfy, 'O') #转换描点范围
+            filename = '\居住人口通勤时间.csv'
+            df_O.to_csv(args.out_time_lw+filename, encoding='UTF-8') #导出表格
+            plot_path = args.out_time_lw+'\\居住人口通勤时间分布.jpg'
+            args.title = '居住人口工作地及通勤时间分布'
+            export_plot(dfy2, df_O, plot_path, '平均通勤时间(min)', args)
+            
+            temp = D_intersect(df, dfy) 
+            df_D = OD_plot(temp, dfy, 'D') #转换描点范围
+            filename = '\就业人口通勤时间.csv'
+            plot_path = args.out_time_lw+'\\就业人口通勤时间分布.jpg'
+            args.title = '就业人口居住地及通勤时间分布'
+            export_plot(dfy2, df_D, plot_path, '平均通勤时间(min)', args)
+            dfb = df_D
         else:
             dfb = df
             filename = '\通勤时间_wgs84.csv'
@@ -474,14 +476,8 @@ def main():
         if args.lw_merge and args.opt7:
             df = merge_lw(args.lw_merge, df)
             print('通勤数量合并完成!')
-        #起点范围
-        if args.way_live_geo and not args.way_work_geo:
-            dfb = O_intersect(df, dfy)
-        #终点范围
-        elif args.way_work_geo and not args.way_live_geo:
-            dfb = D_intersect(df, dfy2)
         #两个范围
-        elif args.way_live_geo and args.way_work_geo:
+        if args.way_live_geo and args.way_work_geo:
             temp = O_intersect(df, dfy)
             dfb = D_intersect(temp, dfy2)    
         else:
@@ -503,14 +499,8 @@ def main():
         if args.lw_por_merge and args.opt8:
             df = por_merge(args.lw_por_merge, df)
             print('通勤数量合并完成!')
-        #起点范围
-        if args.por_live_geo and not args.por_work_geo:
-            dfb = O_intersect(df, dfy)
-        #终点范围
-        elif args.por_work_geo and not args.por_live_geo:
-            dfb = D_intersect(df, dfy2)
         #两个范围
-        elif args.por_live_geo and args.por_work_geo:
+        if args.por_live_geo and args.por_work_geo:
             temp = O_intersect(df, dfy)
             dfb = D_intersect(temp, dfy2)
         else:
@@ -840,7 +830,12 @@ def export_plot(dfy, dfb, plot_path, variable, args):
     #合并网格
     if args.cellsize != 100:
         dfo = dfo.reset_index()
-        df_index = dfo.groupby(['index']).aggregate({variable: 'sum'})
+        if dfo.columns.__contains__('平均通勤时间(min)'):
+            df_index = dfo.groupby(['index']).aggregate({variable: 'mean'})
+            args.scheme = 'user_defined'
+            args.userbin = '15,30,45,60'
+        else:
+            df_index = dfo.groupby(['index']).aggregate({variable: 'sum'})
         del dfo[variable]
         dfo = pd.merge(dfo, df_index, how='inner', on='index')
         dfo.drop_duplicates(subset=['index'], keep='first', inplace=True)
@@ -868,9 +863,9 @@ def export_plot(dfy, dfb, plot_path, variable, args):
         nb = mc.Quantiles(dfo[variable], k=args.k)
     elif args.scheme == 'user_defined':
         nb = mc.UserDefined(dfo[variable], bins=results)
-    bins = nb.bins
+    bins = nb.bins    
     LegendElement = [mpatches.Patch(facecolor=cmap(0), label=f'{args.vmin} - {int(bins[0])}')] + [mpatches.Patch(facecolor=cmap(_*0.25), label=f'{int(bins[_-1])} - {int(bins[_])}') for _ in range(1,args.k)]
-    ax.legend(handles = LegendElement, loc='lower right', fontsize=10, title='图例', shadow=True)
+    ax.legend(handles = LegendElement, loc='lower right', fontsize=10, title=variable, shadow=True)
     ax.axis('off')
     fig.savefig(plot_path, dpi=400)
 
