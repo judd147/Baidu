@@ -3,10 +3,10 @@
 BDTools V2.0
 @Liyao Zhang
 Start Date 1/10/2022
-Last Edit 3/4/2022
+Last Edit 3/11/2022
 
 地理坐标系 EPSG 4326/4490 投影坐标系 EPSG 4547/4526
-常住人口自定义断点 100米 80,200,400,800；500米 2000,5000,10000,20000
+常住人口自定义断点 100米网格 80,200,400,800；500米网格 2000,5000,10000,20000
 """
 import pandas as pd
 import geopandas as gpd
@@ -69,16 +69,19 @@ def main():
     # *** 界面搭建及参数获取 *** #
     #参数设置
     group_vis = parser.add_argument_group('设置', '选择默认参数或自定义参数', gooey_options={"columns": 2})
-    group_vis.add_argument('--wgs', metavar='转换坐标系', help='GCJ02 to WGS84', widget='BlockCheckbox')
+    group_vis.add_argument('-wgs', metavar='转换坐标系', action='store_true', help='GCJ02 to WGS84')
+    group_vis.add_argument('-replot', metavar='重新出图', action='store_true', help='上传数据和范围重新可视化')
     group_vis.add_argument('-title', metavar='图片标题', widget="TextField", default='无标题')
     group_vis.add_argument('-basemap', metavar='底图样式', choices=['Mapbox','天地图'], default='Mapbox')
-    group_vis.add_argument('-cellsize', metavar='网格大小', help='单位:米', choices=['100','200','500','1000'], default='100')
+    group_vis.add_argument('-cellsize', metavar='网格大小', help='单位:米', choices=['100','200','500','1000','自定义范围'], default='100')
     group_vis.add_argument('-cmap', metavar='色调', choices=['Dense_20','Greys','Reds','Oranges','OrRd','YlOrRd','YlOrBr','YlGnBu','hot','Spectral'], default='OrRd')
     group_vis.add_argument('-scheme', metavar='分级方式', choices=['equal_interval','fisher_jenks','jenks_caspall','natural_breaks','quantiles','user_defined'], default='natural_breaks')
     group_vis.add_argument('-k', metavar='数据分级数', help='user_defined不适用，可直接忽略', widget="Slider", default=5)
     group_vis.add_argument('-userbin', metavar='自定义间断点', help="请在断点方式选择'user_defined'后输入并用逗号隔开 例如: 5, 10, 50, 100", widget="TextField")
     group_vis.add_argument('-vmin', metavar='最小值', help='取值范围', widget="Slider", default=1)
     group_vis.add_argument('-alpha', metavar='透明度', help='0-1之间', widget="DecimalField", default=1)
+    group_vis.add_argument('-custom', metavar='自定义范围', help='网格大小选择自定义范围后上传文件', widget="FileChooser", default=r'\\172.10.10.6\创研中心数据小组\01_数据\深圳市地籍网站行政区划2021\深圳街道.shp')
+    
     
     #shp转excel
     group0 = parser.add_argument_group('shp转excel', '可用于申请范围内整体画像、通勤方式等含比例数据', gooey_options={"columns": 1})
@@ -127,6 +130,7 @@ def main():
     group5.add_argument('-D_geo', metavar='D点范围文件所在路径', help="例如: 五和地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group5.add_argument('-out_OD', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
     group5.add_argument('--opt6', metavar='可选分析', action='store_true', help='合并小时数据得到全天数量')
+    group5.add_argument('-rev0', metavar='可选分析', choices=['以分析范围为起点','以分析范围为终点','both'], help='如果选择both，请在O点上传分析范围，D点上传辐射范围(如全市范围)，生成从分析范围前往全市客流分布及分析范围内客流来源分布')
     
     #通勤数量
     group6 = parser.add_argument_group('通勤数量', '反映工作人口或居住人口来源地及通勤数量', gooey_options={"columns": 1})
@@ -134,7 +138,7 @@ def main():
     group6.add_argument('-num_live_geo', metavar='居住范围文件所在路径', help="例如: 五和地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group6.add_argument('-num_work_geo', metavar='工作范围文件所在路径', help="例如: 桃源村地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group6.add_argument('-out_num_lw', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
-    group6.add_argument('--rev1', metavar='可选分析', action='store_true', help='居住地上传分析范围，工作地上传辐射范围(如全市范围)，生成分析范围内居住人口在全市工作地分布及范围内就业人口在全市居住地分布')
+    group6.add_argument('-rev1', metavar='可选分析', choices=['以分析范围为居住地','以分析范围为工作地','both'], help='如果选择both，请在居住地上传分析范围，工作地上传辐射范围(如全市范围)，生成分析范围内居住人口在全市工作地分布及范围内就业人口在全市居住地分布')
     
     #通勤时间
     group7 = parser.add_argument_group('通勤时间', '反映工作人口或居住人口来源地及通勤时间', gooey_options={"columns": 1})
@@ -142,7 +146,7 @@ def main():
     group7.add_argument('-time_live_geo', metavar='居住范围文件所在路径', help="例如: 五和地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group7.add_argument('-time_work_geo', metavar='工作范围文件所在路径', help="例如: 桃源村地铁站500m范围.shp", widget="FileChooser", nargs='?')
     group7.add_argument('-out_time_lw', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
-    group7.add_argument('--rev2', metavar='可选分析', action='store_true', help='居住地上传分析范围，工作地上传辐射范围(如全市范围)，生成分析范围内居住人口前往全市通勤时间分布及范围内就业人口从全市出发通勤时间分布')
+    group7.add_argument('-rev2', metavar='可选分析', choices=['以分析范围为居住地','以分析范围为工作地','both'], help='如果选择both，请在居住地上传分析范围，工作地上传辐射范围(如全市范围)，生成分析范围内居住人口前往全市通勤时间分布及范围内就业人口从全市出发通勤时间分布')
     
     #通勤方式
     group8 = parser.add_argument_group('通勤方式', '反映工作人口或居住人口来源地及通勤方式', gooey_options={"columns": 1})
@@ -152,6 +156,7 @@ def main():
     group8.add_argument('-out_way_lw', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
     group8.add_argument('--opt7', metavar='可选分析', action='store_true', help='合并通勤数量估算各通勤方式使用人数')
     group8.add_argument('-lw_merge', metavar='通勤数量所在路径(可选)', help="例如: 深圳市整体职住分析_202107.txt", widget="FileChooser", nargs='?')
+    group8.add_argument('-rev3', metavar='可选分析', choices=['以分析范围为居住地','以分析范围为工作地','both'], help='如果选择both，请在居住地上传分析范围，生成分析范围内居住人口前往全市通勤方式及范围内就业人口从全市出发通勤方式')
     
     #职住画像
     group9 = parser.add_argument_group('职住画像', '性别年龄学历收入等多维分析', gooey_options={"columns": 1})
@@ -161,6 +166,7 @@ def main():
     group9.add_argument('-out_por_lw', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
     group9.add_argument('--opt8', metavar='可选分析', action='store_true', help='合并通勤数量估算人群数量')
     group9.add_argument('-lw_por_merge', metavar='通勤数量所在路径(可选)', help="例如: 深圳市整体职住分析_202107.txt", widget="FileChooser", nargs='?')
+    group9.add_argument('-rev4', metavar='可选分析', choices=['以分析范围为居住地','以分析范围为工作地','both'], help='如果选择both，请在居住地上传分析范围，生成分析范围内居住人口画像及范围内就业人口画像')
 
     args = parser.parse_args()
     
@@ -218,7 +224,7 @@ def main():
             print('已导出excel结果文件至',args.out)
                 
     #客流数量
-    if args.num_pop and args.num_pop_geo:
+    if args.num_pop and args.num_pop_geo and not args.replot:
         geos = args.num_pop_geo
         for i in range(len(geos)):
             args.num_pop_geo = geos[i]
@@ -244,11 +250,19 @@ def main():
         print('分析类型:客流数量')
         df = grab_and_go(args.num_pop, 'default')
         print('坐标转换完成!')
-        df.to_csv(args.out_num_pop+'\客流数量_wgs84.csv', encoding='UTF-8')
+        df.to_csv(args.out_num_pop+'\客流数量'+str(df['日期'].iloc[0])+'_wgs84.csv', encoding='UTF-8')
         print('文件已成功保存至', args.out_num_pop)
+    elif args.num_pop and args.num_pop_geo and args.replot:
+        print('分析类型:客流数量')
+        df, dfy = reload_point(args.num_pop, args.num_pop_geo[0])
+        plot_path = args.out_num_pop+'\\客流数量样方密度(新).jpg'
+        args.title = '客流数量'
+        export_plot(dfy, df, plot_path, '人数', args)
+        print('图像已成功保存至', args.out_num_pop)
+        print('==============================================================')
         
     #客流画像
-    if args.por_pop and args.por_pop_geo:
+    if args.por_pop and args.por_pop_geo and not args.replot:
         geos = args.por_pop_geo
         for i in range(len(geos)):
             args.por_pop_geo = geos[i]
@@ -274,11 +288,19 @@ def main():
         print('分析类型:客流画像')
         df = grab_and_go(args.por_pop, 'default')
         print('坐标转换完成!')
-        df.to_csv(args.out_por_pop+'\客流画像_wgs84.csv', encoding='UTF-8')
+        df.to_csv(args.out_por_pop+'\客流画像'+str(df['日期'].iloc[0])+'_wgs84.csv', encoding='UTF-8')
         print('文件已成功保存至', args.out_por_pop)
+    elif args.por_pop and args.replot:
+        print('分析类型:客流画像')
+        df = pd.read_csv(args.por_pop)
+        plot_path = args.out_por_pop+'\\客流画像饼状图(新).jpg'
+        args.title = '客流画像'
+        export_pie(df, plot_path, args)
+        print('图像已成功保存至', args.out_por_pop)
+        print('==============================================================')
 
     #常住数量
-    if args.num_stay and args.num_stay_geo:
+    if args.num_stay and args.num_stay_geo and not args.replot:
         geos = args.num_stay_geo
         for i in range(len(geos)):
             args.num_stay_geo = geos[i]
@@ -330,9 +352,38 @@ def main():
         print('坐标转换完成!')
         df.to_csv(args.out_num_stay+'\常住数量'+df['人口类型'].iloc[0]+'_wgs84.csv', encoding='UTF-8')
         print('文件已成功保存至', args.out_num_stay)
+    elif args.num_stay and args.num_stay_geo and args.replot:
+        print('分析类型:常住数量')
+        dfb, dfy = reload_point(args.num_stay, args.num_stay_geo[0])
+        if dfb.columns.__contains__('home'):
+            plot_path = args.out_num_stay+'\\居住人口样方密度(新).jpg'
+            args.title = '居住人口'
+            export_plot(dfy, dfb, plot_path, 'home', args)
+        elif dfb.columns.__contains__('居住人数'):
+            plot_path = args.out_num_stay+'\\居住人口样方密度(新).jpg'
+            args.title = '居住人口'
+            export_plot(dfy, dfb, plot_path, '居住人数', args)
+        if dfb.columns.__contains__('work'):
+            plot_path = args.out_num_stay+'\\就业人口样方密度(新).jpg'
+            args.title = '就业人口'
+            export_plot(dfy, dfb, plot_path, 'work', args)
+        elif dfb.columns.__contains__('工作人数'):
+            plot_path = args.out_num_stay+'\\就业人口样方密度(新).jpg'
+            args.title = '就业人口'
+            export_plot(dfy, dfb, plot_path, '工作人数', args)
+        else:
+            if dfb['人口类型'].iloc[0] == 'home':
+                plot_path = args.out_num_stay+'\\居住人口样方密度(新).jpg'
+                args.title = '居住人口'
+            elif dfb['人口类型'].iloc[0] == 'work':
+                plot_path = args.out_num_stay+'\\就业人口样方密度(新).jpg'
+                args.title = '就业人口'              
+            export_plot(dfy, dfb, plot_path, '人数', args)
+        print('图像已成功保存至', args.out_num_stay)
+        print('==============================================================')
         
     #常住画像
-    if args.por_stay and args.por_stay_geo:
+    if args.por_stay and args.por_stay_geo and not args.replot:
         geos = args.por_stay_geo
         for i in range(len(geos)):
             args.por_stay_geo = geos[i]
@@ -350,9 +401,9 @@ def main():
                 print('常住数量合并完成!')
             dfb = intersect(df, dfy)
             print('空间相交完成!')
-            dfb.to_csv(args.out_por_stay+'\常住画像'+str(i+1)+'.csv', encoding='UTF-8')
+            dfb.to_csv(args.out_por_stay+'\常住画像'+dfb['人口类型'].iloc[0]+str(i+1)+'.csv', encoding='UTF-8')
             print('文件已成功保存至', args.out_por_stay)
-            plot_path = args.out_por_stay+'\\常住画像饼状图'+str(i+1)+'.jpg'
+            plot_path = args.out_por_stay+'\\常住画像饼状图'+dfb['人口类型'].iloc[0]+str(i+1)+'.jpg'
             args.title = '常住画像'
             export_pie(dfb, plot_path, args)
             print('图像已成功保存至', args.out_por_stay)
@@ -363,11 +414,20 @@ def main():
         print('坐标转换完成!')
         df.to_csv(args.out_por_stay+'\常住画像'+df['人口类型'].iloc[0]+'_wgs84.csv', encoding='UTF-8')
         print('文件已成功保存至', args.out_por_stay)
+    elif args.por_stay and args.replot:
+        print('分析类型:常住画像')
+        df = pd.read_csv(args.por_stay)
+        plot_path = args.out_por_stay+'\\常住画像饼状图(新)'+df['人口类型'].iloc[0]+'.jpg'
+        args.title = '常住画像'
+        export_pie(df, plot_path, args)
+        print('图像已成功保存至', args.out_por_stay)
+        print('==============================================================')
 
     #OD分析
-    if args.num_OD:
+    if args.num_OD and not args.replot:
         filename = '\OD分析.csv'
         print('分析类型:OD数量')
+        args.cellsize = 500 #临时使用
         df, dfy, dfy2 = read_OD(args.num_OD, args.O_geo, args.D_geo)
         print('文件读取完成!')
         if args.wgs:
@@ -376,96 +436,215 @@ def main():
         if df.columns.__contains__('小时') and args.opt6:
             df = OD_agg_time(df, args)
             print('全天数量计算完成!')
-        #两个范围
-        if args.O_geo and args.D_geo:
+        if args.O_geo and args.D_geo and args.rev0 == '以分析范围为起点':
             temp = O_intersect(df, dfy)
-            dfb = D_intersect(temp, dfy2)
+            df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
+            filename = '\OD去向分布.csv'
+            plot_path = args.out_OD+'\\OD去向分布.jpg'
+            args.title = 'OD去向分布'
+            export_plot(dfy2, df_O, plot_path, '数量', args, dfy)
+            dfb = df_O
+        elif args.O_geo and args.D_geo and args.rev0 == '以分析范围为终点':
+            temp = D_intersect(df, dfy2) 
+            df_D = OD_plot(temp, dfy, 'D') #转换描点范围
+            filename = '\OD来源分布.csv'
+            plot_path = args.out_OD+'\\OD来源分布.jpg'
+            args.title = 'OD来源分布'
+            export_plot(dfy, df_D, plot_path, '数量', args, dfy2)
+            dfb = df_D            
+        elif args.O_geo and args.D_geo and args.rev0 == 'both':
+            temp = O_intersect(df, dfy)
+            df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
+            filename = '\OD去向分布.csv'
+            df_O.to_csv(args.out_OD+filename, encoding='UTF-8') #导出表格
+            plot_path = args.out_OD+'\\OD去向分布.jpg'
+            args.title = 'OD去向分布'
+            export_plot(dfy2, df_O, plot_path, '数量', args, dfy)
+            
+            temp = D_intersect(df, dfy) 
+            df_D = OD_plot(temp, dfy2, 'D') #转换描点范围
+            filename = '\OD来源分布.csv'
+            plot_path = args.out_OD+'\\OD来源分布.jpg'
+            args.title = 'OD来源分布'
+            export_plot(dfy2, df_D, plot_path, '数量', args, dfy)
+            dfb = df_D
         else:
             dfb = df
-            filename = '\OD分析_wgs84.csv'
+            filename = '\OD分析'+str(df['日期'].iloc[0])+'_wgs84.csv'
         dfb.to_csv(args.out_OD+filename, encoding='UTF-8')
         print('文件已成功保存至', args.out_OD)
         print('==============================================================')
+    elif args.num_OD and args.replot:
+        print('分析类型:OD数量')
+        args.cellsize = 500 #临时使用
+        if args.D_geo and args.rev0 == '以分析范围为起点':
+            df, dfy = OD_reload_point(args.num_OD, args.D_geo, 'O')
+            if args.O_geo:
+                dfy2 = gpd.read_file(args.O_geo)
+            else:
+                dfy2 = ''
+            plot_path = args.out_OD+'\\OD去向分布(新).jpg'
+            args.title = 'OD去向分布'
+            export_plot(dfy, df, plot_path, '数量', args, dfy2)
+        elif args.O_geo and args.rev0 == '以分析范围为终点':
+            df, dfy = OD_reload_point(args.num_OD, args.O_geo, 'D')
+            if args.D_geo:
+                dfy2 = gpd.read_file(args.D_geo)
+            else:
+                dfy2 = ''
+            plot_path = args.out_OD+'\\OD来源分布(新).jpg'
+            args.title = 'OD来源分布'
+            export_plot(dfy, df, plot_path, '数量', args, dfy2)
+        print('图像已成功保存至', args.out_OD)
+        print('==============================================================')
         
     #通勤数量
-    if args.num_lw:
+    if args.num_lw and not args.replot:
         filename = '\通勤数量.csv'
         print('分析类型:通勤数量')
+        args.cellsize = 500 #临时使用
         df, dfy, dfy2 = read_OD(args.num_lw, args.num_live_geo, args.num_work_geo)
         print('文件读取完成!')
         if args.wgs:
             df = livework_to_wgs(df)
             print('坐标转换完成!')
-        #两个范围
-        if args.num_live_geo and args.num_work_geo and not args.rev1:
+        if args.num_live_geo and args.num_work_geo and args.rev1 == '以分析范围为居住地':
             temp = O_intersect(df, dfy)
-            dfb = D_intersect(temp, dfy2)    
-        #两个范围互换
-        elif args.num_live_geo and args.num_work_geo and args.rev1:
-            args.cellsize = 500 #临时使用
-            temp = O_intersect(df, dfy)
-            df_O = OD_plot(temp, dfy, 'O') #转换描点范围
+            df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
             filename = '\居住人口通勤数量.csv'
-            df_O.to_csv(args.out_num_lw+filename, encoding='UTF-8') #导出表格
             plot_path = args.out_num_lw+'\\居住人口工作地分布.jpg'
             args.title = '居住人口工作地分布'
-            export_plot(dfy2, df_O, plot_path, '人数', args)
-            
-            temp = D_intersect(df, dfy) 
+            export_plot(dfy2, df_O, plot_path, '人数', args, dfy)
+            dfb = df_O
+        elif args.num_live_geo and args.num_work_geo and args.rev1 == '以分析范围为工作地':
+            temp = D_intersect(df, dfy2) 
             df_D = OD_plot(temp, dfy, 'D') #转换描点范围
             filename = '\就业人口通勤数量.csv'
             plot_path = args.out_num_lw+'\\就业人口居住地分布.jpg'
             args.title = '就业人口居住地分布'
-            export_plot(dfy2, df_D, plot_path, '人数', args)
+            export_plot(dfy, df_D, plot_path, '人数', args, dfy2)
+            dfb = df_D      
+        elif args.num_live_geo and args.num_work_geo and args.rev1 == 'both':
+            temp = O_intersect(df, dfy)
+            df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
+            filename = '\居住人口通勤数量.csv'
+            df_O.to_csv(args.out_num_lw+filename, encoding='UTF-8') #导出表格
+            plot_path = args.out_num_lw+'\\居住人口工作地分布.jpg'
+            args.title = '居住人口工作地分布'
+            export_plot(dfy2, df_O, plot_path, '人数', args, dfy)
+            
+            temp = D_intersect(df, dfy) 
+            df_D = OD_plot(temp, dfy2, 'D') #转换描点范围
+            filename = '\就业人口通勤数量.csv'
+            plot_path = args.out_num_lw+'\\就业人口居住地分布.jpg'
+            args.title = '就业人口居住地分布'
+            export_plot(dfy2, df_D, plot_path, '人数', args, dfy)
             dfb = df_D
         else:
             dfb = df
-            filename = '\通勤数量_wgs84.csv'
+            filename = '\通勤数量'+str(df['日期'].iloc[0])+'_wgs84.csv'
         dfb.to_csv(args.out_num_lw+filename, encoding='UTF-8')
         print('文件已成功保存至', args.out_num_lw)
         print('==============================================================')
+    elif args.num_lw and args.replot:
+        print('分析类型:通勤数量')
+        args.cellsize = 500 #临时使用
+        if args.num_work_geo and args.rev1 == '以分析范围为居住地':
+            df, dfy = OD_reload_point(args.num_lw, args.num_work_geo, 'O')
+            if args.num_live_geo:
+                dfy2 = gpd.read_file(args.num_live_geo)
+            else:
+                dfy2 = ''
+            plot_path = args.out_num_lw+'\\居住人口工作地分布(新).jpg'
+            args.title = '居住人口工作地分布'
+            export_plot(dfy, df, plot_path, '人数', args, dfy2)
+        elif args.num_live_geo and args.rev1 == '以分析范围为工作地':
+            df, dfy = OD_reload_point(args.num_lw, args.num_live_geo, 'D')
+            if args.num_work_geo:
+                dfy2 = gpd.read_file(args.num_work_geo)
+            else:
+                dfy2 = ''
+            plot_path = args.out_num_lw+'\\就业人口居住地分布(新).jpg'
+            args.title = '就业人口居住地分布'
+            export_plot(dfy, df, plot_path, '人数', args, dfy2)
+        print('图像已成功保存至', args.out_num_lw)
+        print('==============================================================')
         
     #通勤时间
-    if args.time_lw:
+    if args.time_lw and not args.replot:
         filename = '\通勤时间.csv'
         print('分析类型:通勤时间')
+        args.cellsize = 500 #临时使用
         df, dfy, dfy2 = read_OD(args.time_lw, args.time_live_geo, args.time_work_geo)
         print('文件读取完成!')
         if args.wgs:
             df = livework_to_wgs(df)
             print('坐标转换完成!')
         df['平均通勤时间(min)'] = df['平均通勤时间(s)']/60
-        #两个范围
-        if args.time_live_geo and args.time_work_geo and not args.rev2:
+        if args.time_live_geo and args.time_work_geo and args.rev2 == '以分析范围为居住地':
             temp = O_intersect(df, dfy)
-            dfb = D_intersect(temp, dfy2)    
-        #两个范围互换
-        elif args.time_live_geo and args.time_work_geo and args.rev2:
-            args.cellsize = 500 #临时使用
-            temp = O_intersect(df, dfy)
-            df_O = OD_plot(temp, dfy, 'O') #转换描点范围
+            df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
             filename = '\居住人口通勤时间.csv'
-            df_O.to_csv(args.out_time_lw+filename, encoding='UTF-8') #导出表格
             plot_path = args.out_time_lw+'\\居住人口通勤时间分布.jpg'
             args.title = '居住人口工作地及通勤时间分布'
-            export_plot(dfy2, df_O, plot_path, '平均通勤时间(min)', args)
-            
-            temp = D_intersect(df, dfy) 
+            export_plot(dfy2, df_O, plot_path, '平均通勤时间(min)', args, dfy)
+            dfb = df_O            
+        elif args.time_live_geo and args.time_work_geo and args.rev2 == '以分析范围为工作地':
+            temp = D_intersect(df, dfy2) 
             df_D = OD_plot(temp, dfy, 'D') #转换描点范围
             filename = '\就业人口通勤时间.csv'
             plot_path = args.out_time_lw+'\\就业人口通勤时间分布.jpg'
             args.title = '就业人口居住地及通勤时间分布'
-            export_plot(dfy2, df_D, plot_path, '平均通勤时间(min)', args)
+            export_plot(dfy, df_D, plot_path, '平均通勤时间(min)', args, dfy2)
+            dfb = df_D
+        elif args.time_live_geo and args.time_work_geo and args.rev2 == 'both':
+            temp = O_intersect(df, dfy)
+            df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
+            filename = '\居住人口通勤时间.csv'
+            df_O.to_csv(args.out_time_lw+filename, encoding='UTF-8') #导出表格
+            plot_path = args.out_time_lw+'\\居住人口通勤时间分布.jpg'
+            args.title = '居住人口工作地及通勤时间分布'
+            export_plot(dfy2, df_O, plot_path, '平均通勤时间(min)', args, dfy)
+            
+            temp = D_intersect(df, dfy) 
+            df_D = OD_plot(temp, dfy2, 'D') #转换描点范围
+            filename = '\就业人口通勤时间.csv'
+            plot_path = args.out_time_lw+'\\就业人口通勤时间分布.jpg'
+            args.title = '就业人口居住地及通勤时间分布'
+            export_plot(dfy2, df_D, plot_path, '平均通勤时间(min)', args, dfy)
             dfb = df_D
         else:
             dfb = df
-            filename = '\通勤时间_wgs84.csv'
+            filename = '\通勤时间'+str(df['日期'].iloc[0])+'_wgs84.csv'
         dfb.to_csv(args.out_time_lw+filename, encoding='UTF-8')
         print('文件已成功保存至', args.out_time_lw)
         print('==============================================================')
+    elif args.time_lw and args.replot:
+        print('分析类型:通勤时间')
+        args.cellsize = 500 #临时使用
+        if args.time_work_geo and args.rev2 == '以分析范围为居住地':
+            df, dfy = OD_reload_point(args.time_lw, args.time_work_geo, 'O')
+            if args.time_live_geo:
+                dfy2 = gpd.read_file(args.time_live_geo)
+            else:
+                dfy2 = ''
+            plot_path = args.out_time_lw+'\\居住人口通勤时间分布(新).jpg'
+            args.title = '居住人口工作地及通勤时间分布'
+            export_plot(dfy, df, plot_path, '平均通勤时间(min)', args, dfy2)
+        elif args.time_live_geo and args.rev2 == '以分析范围为工作地':
+            df, dfy = OD_reload_point(args.time_lw, args.time_live_geo, 'D')
+            if args.time_work_geo:
+                dfy2 = gpd.read_file(args.time_work_geo)
+            else:
+                dfy2 = ''
+            plot_path = args.out_time_lw+'\\就业人口通勤时间分布(新).jpg'
+            args.title = '就业人口居住地及通勤时间分布'
+            export_plot(dfy, df, plot_path, '平均通勤时间(min)', args, dfy2)
+        print('图像已成功保存至', args.out_time_lw)
+        print('==============================================================')
         
     #通勤方式
-    if args.way_lw:
+    if args.way_lw and not args.replot:
         filename = '\通勤方式.csv'
         print('分析类型:通勤方式')
         df, dfy, dfy2 = read_OD(args.way_lw, args.way_live_geo, args.way_work_geo)
@@ -476,19 +655,53 @@ def main():
         if args.lw_merge and args.opt7:
             df = merge_lw(args.lw_merge, df)
             print('通勤数量合并完成!')
-        #两个范围
-        if args.way_live_geo and args.way_work_geo:
+        if args.way_live_geo and args.rev3 == '以分析范围为居住地':
+            dfb = O_intersect(df, dfy)
+            filename = '\居住人口通勤方式.csv'
+            plot_path = args.out_way_lw+'\\居住人口通勤方式.jpg'
+            args.title = '居住人口通勤方式'
+            commute_pie(dfb, plot_path, args)
+        elif args.way_work_geo and args.rev3 == '以分析范围为工作地':
+            dfb = D_intersect(df, dfy2)
+            filename = '\就业人口通勤方式.csv'
+            plot_path = args.out_way_lw+'\\就业人口通勤方式.jpg'
+            args.title = '就业人口通勤方式'
+            commute_pie(dfb, plot_path, args)
+        elif args.way_live_geo and args.rev3 == 'both':
             temp = O_intersect(df, dfy)
-            dfb = D_intersect(temp, dfy2)    
+            filename = '\居住人口通勤方式.csv'
+            temp.to_csv(args.out_way_lw+filename, encoding='UTF-8')
+            plot_path = args.out_way_lw+'\\居住人口通勤方式.jpg'
+            args.title = '居住人口通勤方式'
+            commute_pie(temp, plot_path, args)
+            
+            dfb = D_intersect(df, dfy)
+            filename = '\就业人口通勤方式.csv'
+            plot_path = args.out_way_lw+'\\就业人口通勤方式.jpg'
+            args.title = '就业人口通勤方式'
+            commute_pie(dfb, plot_path, args)
         else:
             dfb = df
-            filename = '\通勤方式_wgs84.csv'
+            filename = '\通勤方式'+str(df['日期'].iloc[0])+'_wgs84.csv'
         dfb.to_csv(args.out_way_lw+filename, encoding='UTF-8')
         print('文件已成功保存至', args.out_way_lw)
         print('==============================================================')
+    elif args.way_lw and args.replot:
+        print('分析类型:通勤方式')
+        df = pd.read_csv(args.way_lw)
+        if args.rev3 == '以分析范围为居住地':
+            plot_path = args.out_way_lw+'\\居住人口通勤方式(新).jpg'
+            args.title = '居住人口通勤方式'
+            commute_pie(df, plot_path, args)        
+        elif args.rev3 == '以分析范围为工作地':
+            plot_path = args.out_way_lw+'\\就业人口通勤方式(新).jpg'
+            args.title = '就业人口通勤方式'
+            commute_pie(df, plot_path, args)
+        print('图像已成功保存至', args.out_way_lw)
+        print('==============================================================')
         
     #职住画像
-    if args.por_lw:
+    if args.por_lw and not args.replot:
         filename = '\职住画像.csv'
         print('分析类型:职住画像')
         df, dfy, dfy2 = read_OD(args.por_lw, args.por_live_geo, args.por_work_geo)
@@ -499,16 +712,49 @@ def main():
         if args.lw_por_merge and args.opt8:
             df = por_merge(args.lw_por_merge, df)
             print('通勤数量合并完成!')
-        #两个范围
-        if args.por_live_geo and args.por_work_geo:
+        if args.por_live_geo and args.rev4 == '以分析范围为居住地':
+            dfb = O_intersect(df, dfy)
+            filename = '\职住画像_居住.csv'
+            plot_path = args.out_por_lw+'\\职住画像_居住.jpg'
+            args.title = '居住人口通勤画像'
+            export_pie(dfb, plot_path, args)
+        elif args.por_work_geo and args.rev4 == '以分析范围为工作地':
+            dfb = D_intersect(df, dfy2)
+            filename = '\职住画像_就业.csv'
+            plot_path = args.out_por_lw+'\\职住画像_就业.jpg'
+            args.title = '就业人口通勤画像'
+            export_pie(dfb, plot_path, args)
+        elif args.por_live_geo and args.rev4 == 'both':
             temp = O_intersect(df, dfy)
-            dfb = D_intersect(temp, dfy2)
+            filename = '\职住画像_居住.csv'
+            temp.to_csv(args.out_por_lw+filename, encoding='UTF-8')
+            plot_path = args.out_por_lw+'\\职住画像_居住.jpg'
+            args.title = '居住人口通勤画像'
+            export_pie(temp, plot_path, args)
+            
+            dfb = D_intersect(df, dfy)
+            filename = '\职住画像_就业.csv'
+            plot_path = args.out_por_lw+'\\职住画像_就业.jpg'
+            args.title = '就业人口通勤画像'
+            export_pie(dfb, plot_path, args)
         else:
             dfb = df
-            filename = '\职住画像_wgs84.csv'
-        print('空间相交完成!')
+            filename = '\职住画像'+str(df['日期'].iloc[0])+'_wgs84.csv'
         dfb.to_csv(args.out_por_lw+filename, encoding='UTF-8')
         print('文件已成功保存至', args.out_por_lw)
+        print('==============================================================')
+    elif args.por_lw and args.replot:
+        print('分析类型:职住画像')
+        df = pd.read_csv(args.por_lw)
+        if args.rev3 == '以分析范围为居住地':
+            plot_path = args.out_por_lw+'\\职住画像_居住(新).jpg'
+            args.title = '居住人口通勤画像'
+            export_pie(df, plot_path, args)        
+        elif args.rev3 == '以分析范围为工作地':
+            plot_path = args.out_por_lw+'\\职住画像_就业(新).jpg'
+            args.title = '就业人口通勤画像'
+            export_pie(df, plot_path, args)
+        print('图像已成功保存至', args.out_por_lw)
         print('==============================================================')
 
 # *** 通用函数 *** #
@@ -518,6 +764,33 @@ def grab_and_go(data, signal):
     if signal == 'default':
         df = to_wgs(df)
     return df
+
+# 只出图
+def reload_point(data, geofile):
+    df = pd.read_csv(data)
+    dfy = gpd.read_file(geofile)
+    dfx = gpd.GeoDataFrame(df, geometry = gpd.points_from_xy(df['x'], df['y']))
+    dfx.crs = 'EPSG:4490' #按地理坐标系读取
+    if dfy.crs == 'epsg:4547':
+        dfx = dfx.to_crs(epsg=4547) #转投影坐标
+    elif dfy.crs == 'epsg:4526':
+        dfx = dfx.to_crs(epsg=4526) #转投影坐标
+    return dfx, dfy
+
+# OD只出图
+def OD_reload_point(data, geofile, signal):
+    df = pd.read_csv(data)
+    dfy = gpd.read_file(geofile)
+    if signal == 'O':
+        df_reverse = gpd.GeoDataFrame(df, geometry = gpd.points_from_xy(df['D_x'], df['D_y']))
+    elif signal == 'D':
+        df_reverse = gpd.GeoDataFrame(df, geometry = gpd.points_from_xy(df['O_x'], df['O_y'])) 
+    df_reverse.crs = 'EPSG:4490' #按WGS84读取
+    if dfy.crs == 'epsg:4547':
+        df_reverse = df_reverse.to_crs(epsg=4547) #转投影坐标
+    elif dfy.crs == 'epsg:4526':
+        df_reverse = df_reverse.to_crs(epsg=4526) #转投影坐标
+    return df_reverse, dfy
 
 def read_file(data, geofile):
     print('正在读取文件...')
@@ -564,10 +837,10 @@ def intersect(df, dfy):
     dfx.crs = 'EPSG:4490' #按地理坐标系读取
     if dfy.crs == 'epsg:4547':
         dfx = dfx.to_crs(epsg=4547) #转投影坐标
-        dfy = dfy.to_crs(epsg=4547)
     elif dfy.crs == 'epsg:4526':
         dfx = dfx.to_crs(epsg=4526) #转投影坐标
-        dfy = dfy.to_crs(epsg=4526)
+    if dfx.columns.__contains__('index_right'):
+        dfx.drop(['index_right'], axis=1, inplace=True)
     dfb = gpd.sjoin(dfx, dfy, op='intersects') #执行相交
     return dfb    
     
@@ -707,10 +980,8 @@ def O_intersect(df, dfy):
     dfx.crs = 'EPSG:4490' #按WGS84读取
     if dfy.crs == 'epsg:4547':
         dfx = dfx.to_crs(epsg=4547) #转投影坐标
-        dfy = dfy.to_crs(epsg=4547)
     elif dfy.crs == 'epsg:4526':
         dfx = dfx.to_crs(epsg=4526) #转投影坐标
-        dfy = dfy.to_crs(epsg=4526)
     dfb = gpd.sjoin(dfx, dfy, op='intersects') #执行相交
     if dfb.columns.__contains__('index_right'):
         dfb.drop(['index_right'], axis=1, inplace=True)
@@ -722,10 +993,8 @@ def D_intersect(df, dfy):
     dfx.crs = 'EPSG:4490' #按WGS84读取
     if dfy.crs == 'epsg:4547':
         dfx = dfx.to_crs(epsg=4547) #转投影坐标
-        dfy = dfy.to_crs(epsg=4547)
     elif dfy.crs == 'epsg:4526':
         dfx = dfx.to_crs(epsg=4526) #转投影坐标
-        dfy = dfy.to_crs(epsg=4526)
     dfb = gpd.sjoin(dfx, dfy, op='intersects') #执行相交
     return dfb
 
@@ -733,14 +1002,12 @@ def OD_plot(dfb, dfy, signal):
     if signal == 'O':
         df_reverse = gpd.GeoDataFrame(dfb, geometry = gpd.points_from_xy(dfb['D_x'], dfb['D_y']))
     elif signal == 'D':
-        df_reverse = gpd.GeoDataFrame(dfb, geometry = gpd.points_from_xy(dfb['O_x'], dfb['O_y']))    
+        df_reverse = gpd.GeoDataFrame(dfb, geometry = gpd.points_from_xy(dfb['O_x'], dfb['O_y']))
     df_reverse.crs = 'EPSG:4490' #按WGS84读取
     if dfy.crs == 'epsg:4547':
         df_reverse = df_reverse.to_crs(epsg=4547) #转投影坐标
-        dfy = dfy.to_crs(epsg=4547)
     elif dfy.crs == 'epsg:4526':
         df_reverse = df_reverse.to_crs(epsg=4526) #转投影坐标
-        dfy = dfy.to_crs(epsg=4526)
     return df_reverse
 
 #职住专用
@@ -783,15 +1050,18 @@ def por_merge(num, df):
     df_final.update(df_final.iloc[:, 5:53].mul(df_final.人数, 0))
     return df_final
 
-def export_plot(dfy, dfb, plot_path, variable, args):
+def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
     print('正在绘图中...')
     #参数转换为数值
-    args.cellsize = int(args.cellsize)
+    if args.cellsize != '自定义范围':
+        args.cellsize = int(args.cellsize)
     args.vmin = int(args.vmin)
     args.k = int(args.k)
     args.alpha = float(args.alpha)
     if args.cmap == 'Dense_20':
         args.cmap = Dense_20.mpl_colormap
+    if dfb.columns.__contains__('index_right'):
+        del dfb['index_right']
     #坐标系
     if dfy.crs == 'epsg:4547':
         sys_proj = '4547'
@@ -807,26 +1077,30 @@ def export_plot(dfy, dfb, plot_path, variable, args):
     elif args.basemap == 'Mapbox':
         request = MB_vec()
     ax.add_image(request, 15)
-    plt.suptitle(args.title, fontsize=20) #最高级别标题      
-    subtitle = '时间：'+str(dfb['日期'].iloc[0])+'  网格大小：'+str(args.cellsize)+'米x'+str(args.cellsize)+'米'
-    plt.title(subtitle, fontsize=15) #副标题
-    #绘制渔网图
-    coord1 = (dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[3]+100)
-    coord3 = (dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100)
-    coord2 = (coord3[0],coord1[1])
-    coord4 = (coord1[0],coord3[1])
-    rectangle = Polygon([coord1,coord2,coord3,coord4])
-    rectangle = gpd.GeoDataFrame([rectangle],columns=['geometry'])
-    rectangle = rectangle.set_crs(epsg=sys_proj)
-    coords = rectangle['geometry'].bounds.values[0]
-    loc_all = '{},{},{},{}'.format(coords[0],coords[3],coords[2],coords[1])
-    nets = lng_lat(loc_all, args.cellsize)
-    netfish = gpd.GeoDataFrame([getPolygon(i[0],i[1]) for i in nets],columns=['geometry'])
-    netfish = netfish.set_crs(epsg=sys_proj)
-    netfish = netfish.reset_index()
-    if dfb.columns.__contains__('index_right'):
-        del dfb['index_right']
-    dfo = gpd.sjoin(netfish, dfb, op='contains') #渔网与dfb空间相交
+    plt.suptitle(args.title, fontsize=20) #最高级别标题
+    if args.cellsize == '自定义范围':
+        subtitle = '时间：'+str(dfb['日期'].iloc[0])+'  统计口径：自定义范围'
+        plt.title(subtitle, fontsize=15) #副标题
+        jiedao = gpd.read_file(args.custom)
+        dfo = gpd.sjoin(jiedao, dfb, op='contains')
+    else:
+        #绘制渔网图
+        subtitle = '时间：'+str(dfb['日期'].iloc[0])+'  网格大小：'+str(args.cellsize)+'米x'+str(args.cellsize)+'米'
+        plt.title(subtitle, fontsize=15) #副标题
+        coord1 = (dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[3]+100)
+        coord3 = (dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100)
+        coord2 = (coord3[0],coord1[1])
+        coord4 = (coord1[0],coord3[1])
+        rectangle = Polygon([coord1,coord2,coord3,coord4])
+        rectangle = gpd.GeoDataFrame([rectangle],columns=['geometry'])
+        rectangle = rectangle.set_crs(epsg=sys_proj)
+        coords = rectangle['geometry'].bounds.values[0]
+        loc_all = '{},{},{},{}'.format(coords[0],coords[3],coords[2],coords[1])
+        nets = lng_lat(loc_all, args.cellsize)
+        netfish = gpd.GeoDataFrame([getPolygon(i[0],i[1]) for i in nets],columns=['geometry'])
+        netfish = netfish.set_crs(epsg=sys_proj)
+        netfish = netfish.reset_index()
+        dfo = gpd.sjoin(netfish, dfb, op='contains') #渔网与dfb空间相交
     #合并网格
     if args.cellsize != 100:
         dfo = dfo.reset_index()
@@ -839,9 +1113,13 @@ def export_plot(dfy, dfb, plot_path, variable, args):
         del dfo[variable]
         dfo = pd.merge(dfo, df_index, how='inner', on='index')
         dfo.drop_duplicates(subset=['index'], keep='first', inplace=True)
-    dfy.boundary.plot(ax=ax, linestyle='--', edgecolor='grey', zorder=2) #绘制范围
+    #绘制OD分析范围
+    if AOI is not None: 
+        AOI = AOI.to_crs(epsg=int(sys_proj))
+        AOI.boundary.plot(ax=ax, linestyle='-', edgecolor='k', zorder=3)
     dfo = dfo[dfo[variable]>=args.vmin] #按最小值筛选
     #绘制样方密度图
+    dfy.boundary.plot(ax=ax, linestyle='--', edgecolor='grey', zorder=2) #绘制范围
     if args.scheme == 'user_defined':
         temp = args.userbin.split(',')
         results = list(map(int, temp))
@@ -881,7 +1159,7 @@ def export_pie(dfb, plot_path, args):
     axs[0, 0].pie(gender_value, labels=gender_label, colors=gender_color, autopct='%.f%%', shadow=False, counterclock=False, wedgeprops={'edgecolor': 'white', 'linewidth': 1}, startangle=90)
     axs[0, 0].set_title('性别比例', fontsize=14)
     #年龄
-    if dfb.columns.__contains__('人口类型'):
+    if dfb.columns.__contains__('人口类型') or dfb.columns.__contains__('居住地名称'):
         age_total = dfb['年龄阶段:18-24'].sum() + dfb['年龄阶段:25-34'].sum() + dfb['年龄阶段:35-44'].sum() + dfb['年龄阶段:45-54'].sum() + dfb['年龄阶段:55-64'].sum() + dfb['年龄阶段:65以上'].sum()
         age_value = [(dfb['年龄阶段:18-24'].sum()+dfb['年龄阶段:25-34'].sum())/age_total, (dfb['年龄阶段:35-44'].sum()+dfb['年龄阶段:45-54'].sum())/age_total, (dfb['年龄阶段:55-64'].sum()+dfb['年龄阶段:65以上'].sum())/age_total]
     else:
@@ -905,6 +1183,18 @@ def export_pie(dfb, plot_path, args):
     income_color = ['#e7bcf3','#E690D1','#9d96f5','#8378EA']
     axs[1, 1].pie(income_value, labels=income_label, colors=income_color, autopct='%.f%%', shadow=False, counterclock=False, wedgeprops={'edgecolor': 'white', 'linewidth': 1}, startangle=90)
     axs[1, 1].set_title('收入水平', fontsize=14)
+    plt.tight_layout()
+    fig.savefig(plot_path, dpi=400)
+    
+def commute_pie(dfb, plot_path, args):
+    print('正在绘图中...')
+    fig = plt.figure(figsize=(6, 6))
+    plt.title(args.title, fontsize=15)
+    total = dfb['驾车比例'].sum() + dfb['地铁比例'].sum() + dfb['公交比例'].sum() + dfb['骑行比例'].sum() + dfb['步行比例'].sum()
+    label = ['驾车', '地铁', '公交', '骑行', '步行']
+    value = [dfb['驾车比例'].sum()/total, dfb['地铁比例'].sum()/total, dfb['公交比例'].sum()/total, dfb['骑行比例'].sum()/total, dfb['步行比例'].sum()/total]
+    color = ['#9FE6B8','#32C5E9','#fb7293','#e7bcf3','#9d96f5']
+    plt.pie(value, labels=label, colors=color, autopct='%.f%%', shadow=False, counterclock=False, wedgeprops={'edgecolor': 'white', 'linewidth': 1}, startangle=90)
     plt.tight_layout()
     fig.savefig(plot_path, dpi=400)
 
