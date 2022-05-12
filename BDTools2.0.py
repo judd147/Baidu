@@ -3,7 +3,7 @@
 BDTools V2.0
 @Liyao Zhang
 Start Date 1/10/2022
-Last Edit 3/31/2022
+Last Edit 5/12/2022
 
 地理坐标系 EPSG 4326/4490 投影坐标系 EPSG 4547/4526
 常住人口自定义断点 100米网格 80,200,400,800；500米网格 2000,5000,10000,20000
@@ -29,8 +29,8 @@ plt.rcParams.update({'figure.max_open_warning': 0})
 class MB_vec_default(cimgt.GoogleWTS):
     def _image_url(self, tile):
         x, y, z = tile
-        access_token = 'pk.eyJ1IjoianVkZDE0N3QiLCJhIjoiY2t6b3d4cjJsM2NuOTJxbnJsaXBrandobyJ9.VXx0tjmrPmujViEjYFgMqg'
-        url = (f'https://api.mapbox.com/styles/v1/judd147t/ckzqqirua00nu14l980idnr9s/tiles/256'
+        access_token = 'pk.eyJ1IjoibW9leDEwMDIzNiIsImEiOiJjbDF1ZW1oYmYybXAyM2NvMmczNmRlOXptIn0.HAW1OjKgMO_cBdSWVvMKjg'
+        url = (f'https://api.mapbox.com/styles/v1/moex100236/cl1ucnkj3001y14o6m8ynk3w2/tiles/256'
                f'/{z}/{x}/{y}?access_token={access_token}'.format(z=z, y=y, x=x, token=access_token))
         return url
 class MB_vec_backup(cimgt.GoogleWTS):
@@ -374,6 +374,7 @@ def main():
                 calc_ratio(dfb)
             dfb.to_csv(args.out_num_stay+'\常住数量_'+name+'.csv', encoding='UTF-8', index=False)
             print('文件已成功保存至', args.out_num_stay)
+
             if dfb.columns.__contains__('home'):
                 plot_path = args.out_num_stay+'\\居住人口样方密度_'+name+'.jpg'
                 args.title = '居住人口'
@@ -390,7 +391,7 @@ def main():
                 plot_path = args.out_num_stay+'\\就业人口样方密度_'+name+'.jpg'
                 args.title = '就业人口'
                 export_plot(dfy, dfb, plot_path, '工作人数', args)
-            else:
+            else:               
                 if dfb['人口类型'].iloc[0] == 'home':
                     plot_path = args.out_num_stay+'\\居住人口样方密度_'+name+'.jpg'
                     args.title = '居住人口'
@@ -618,11 +619,12 @@ def main():
             filename = '\居住人口通勤数量_'+O_name+'.csv'
             plot_path = args.out_num_lw+'\\居住人口工作地分布_'+O_name+'.jpg'
             args.title = '居住人口工作地分布(居住地:'+O_name+' 工作地:'+D_name+')'
+            dfb = df_O
+            dfb.to_csv(args.out_num_lw+filename, encoding='UTF-8', index=False)
             if args.pt1 == 'OD图':
                 OD_Linestring(dfy2, df_O, plot_path, '人数', args, dfy)
             else:
                 export_plot(dfy2, df_O, plot_path, '人数', args, dfy)
-            dfb = df_O
         elif args.num_live_geo and args.num_work_geo and args.rev1 == '以分析范围为工作地':
             temp = D_intersect(df, dfy2)
             df_D = temp
@@ -633,11 +635,12 @@ def main():
             filename = '\就业人口通勤数量_'+D_name+'.csv'
             plot_path = args.out_num_lw+'\\就业人口居住地分布_'+D_name+'.jpg'
             args.title = '就业人口居住地分布(居住地:'+O_name+' 工作地:'+D_name+')'
+            dfb = df_D
+            dfb.to_csv(args.out_num_lw+filename, encoding='UTF-8', index=False)
             if args.pt1 == 'OD图':
                 OD_Linestring(dfy, df_D, plot_path, '人数', args, dfy2)
             else:
                 export_plot(dfy, df_D, plot_path, '人数', args, dfy2)
-            dfb = df_D      
         elif args.num_live_geo and args.num_work_geo and args.rev1 == 'both':
             temp = O_intersect(df, dfy)
             df_O = temp
@@ -663,15 +666,17 @@ def main():
             filename = '\就业人口通勤数量_'+O_name+'.csv'
             plot_path = args.out_num_lw+'\\就业人口居住地分布_'+O_name+'.jpg'
             args.title = '就业人口居住地分布(居住地:'+D_name+' 工作地:'+O_name+')'
+            dfb = df_D
+            dfb.to_csv(args.out_num_lw+filename, encoding='UTF-8', index=False)
             if args.pt1 == 'OD图':
                 OD_Linestring(dfy2, df_D, plot_path, '人数', args, dfy)
             else:
                 export_plot(dfy2, df_D, plot_path, '人数', args, dfy)
-            dfb = df_D
         else:
             dfb = df
             filename = '\通勤数量'+str(df['日期'].iloc[0])+'_wgs84.csv'
-        dfb.to_csv(args.out_num_lw+filename, encoding='UTF-8', index=False)
+            dfb.to_csv(args.out_num_lw+filename, encoding='UTF-8', index=False)
+        #dfb.to_csv(args.out_num_lw+filename, encoding='UTF-8', index=False)
         print('文件已成功保存至', args.out_num_lw)
         print('==============================================================')
     elif args.num_lw and args.replot:
@@ -1335,11 +1340,11 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
         del dfb['index_right']
     #坐标系
     if dfy.crs == 'epsg:4547':
-        sys_proj = '4547'
+        sys_proj = 4547
     elif dfy.crs == 'epsg:4526':
-        sys_proj = '4526'
+        sys_proj = 4526
     else:
-        sys_proj = '4547'
+        sys_proj = 4547
     #加载底图
     fig = plt.figure(figsize=(14, 8))
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.epsg(sys_proj))
@@ -1412,7 +1417,7 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
         dfo = dfo[dfo[variable]>=args.vmin] #按最小值筛选
     #绘制OD分析范围
     if AOI is not None: 
-        AOI = AOI.to_crs(epsg=int(sys_proj))
+        AOI = AOI.to_crs(epsg=sys_proj)
         AOI.boundary.plot(ax=ax, linestyle='-', edgecolor='k', zorder=3)
     #绘制样方密度图
     dfy.boundary.plot(ax=ax, linestyle='--', edgecolor='grey', zorder=2) #绘制范围
