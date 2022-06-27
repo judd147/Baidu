@@ -3,7 +3,7 @@
 BDTools V2.0
 @Liyao Zhang
 Start Date 1/10/2022
-Last Edit 5/12/2022
+Last Edit 6/17/2022
 
 地理坐标系 EPSG 4326/4490 投影坐标系 EPSG 4547/4526
 常住人口自定义断点 100米网格 80,200,400,800；500米网格 2000,5000,10000,20000
@@ -15,6 +15,7 @@ import xlsxwriter
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import mapclassify as mc
+from functools import reduce
 from gooey import Gooey, GooeyParser
 from GCS_Conversion import gcj2wgs
 from shapely.geometry import Point, Polygon, LineString
@@ -97,7 +98,7 @@ def main():
     group_vis.add_argument('-vmin', metavar='最小值', help='可视化显示的最小值', widget="Slider", default=1)
     group_vis.add_argument('-alpha', metavar='透明度', help='0-1之间', widget="DecimalField", default=1)
     group_vis.add_argument('-linewidth', metavar='OD图线宽系数', help='建议选择1以上', widget="DecimalField", default=1.5)
-    group_vis.add_argument('-custom', metavar='自定义聚合范围', help='网格大小选择自定义范围后上传文件', widget="FileChooser", default=r'\\172.10.10.6\创研中心数据小组\01_数据\深圳市地籍网站行政区划2021\深圳街道.shp')
+    group_vis.add_argument('-custom', metavar='自定义聚合范围', help='网格大小选择自定义范围后上传文件', widget="FileChooser", default=r'D:\范围\深圳市地籍网站行政区划2021\深圳街道.shp')
     
     #shp转excel
     group0 = parser.add_argument_group('shp转excel', '可用于申请范围内整体画像、通勤方式等含比例数据', gooey_options={"columns": 1})
@@ -127,10 +128,11 @@ def main():
     group3.add_argument('-num_stay', metavar='常住数量所在路径', help="例如: 信科-深圳市整体常住分析-7-9月_longstay_restore_numhome.txt", widget="FileChooser", nargs='?')
     group3.add_argument('-num_stay_geo', metavar='范围文件所在路径', help="例如: 桃源村地铁站500m范围.shp", widget="MultiFileChooser", nargs='*')
     group3.add_argument('-out_num_stay', metavar='结果文件保存路径', help="默认保存为csv格式", widget="DirChooser", nargs='?')
-    group3.add_argument('--opt3', metavar='可选分析', action='store_true', help='计算居住且工作人口数量，需在下方再选择一个常住数量文件')
-    group3.add_argument('-num_without', metavar='常住数量2所在路径(可选)', help="如果常住数量上传的是工作人口，请在此上传工作不居住人口数量；如果常住数量上传的是居住人口，请在此上传居住不工作人口数量", widget="FileChooser", nargs='?')
+    group3.add_argument('--opt3', metavar='可选分析', action='store_true', help='计算居住且工作人口数量，需在下方再选择两个常住数量文件')    
+    group3.add_argument('-num_without1', metavar='常住数量2所在路径(可选)', help="如果常住数量上传的是工作人口，请在此上传工作不居住人口数量；如果常住数量上传的是居住人口，请在此上传居住不工作人口数量", widget="FileChooser", nargs='?')
+    group3.add_argument('-num_without2', metavar='常住数量3所在路径(可选)', widget="FileChooser", nargs='?')    
     group3.add_argument('--opt4', metavar='可选分析', action='store_true', help='计算职住比，需在下方再选择一个常住数量文件')
-    group3.add_argument('-lw_ratio', metavar='常住数量3所在路径(可选)', help="如果常住数量上传的是工作人口，请在此上传居住人口数量；如果常住数量上传的是居住人口，请在此上传工作人口数量", widget="FileChooser", nargs='?')
+    group3.add_argument('-lw_ratio', metavar='常住数量4所在路径(可选)', help="如果常住数量上传的是工作人口，请在此上传居住人口数量；如果常住数量上传的是居住人口，请在此上传工作人口数量", widget="FileChooser", nargs='?')
     
     #常住画像
     group4 = parser.add_argument_group('常住画像', '性别年龄学历收入等多维分析', gooey_options={"columns": 1})
@@ -503,7 +505,7 @@ def main():
             elif args.pt0 == '样方密度图':
                 df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
             filename = '\OD去向分布_'+O_name+'.csv'
-            plot_path = args.out_OD+'\\OD去向分布_'+O_name+'.jpg'
+            plot_path = args.out_OD+'\\OD去向分布地_'+O_name+'.jpg'
             args.title = 'OD去向分布(O点:'+O_name+' D点:'+D_name+')'
             if args.pt0 == 'OD图':
                 OD_Linestring(dfy2, df_O, plot_path, '数量', args, dfy)
@@ -518,7 +520,7 @@ def main():
             elif args.pt0 == '样方密度图':
                 df_D = OD_plot(temp, dfy, 'D') #转换描点范围
             filename = '\OD来源分布_'+D_name+'.csv'
-            plot_path = args.out_OD+'\\OD来源分布_'+D_name+'.jpg'
+            plot_path = args.out_OD+'\\OD来源分布地_'+D_name+'.jpg'
             args.title = 'OD来源分布(O点:'+O_name+' D点:'+D_name+')'
             if args.pt0 == 'OD图':
                 OD_Linestring(dfy, df_D, plot_path, '数量', args, dfy2)
@@ -534,7 +536,7 @@ def main():
                 df_O = OD_plot(temp, dfy2, 'O') #转换描点范围
             filename = '\OD去向分布_'+O_name+'.csv'
             df_O.to_csv(args.out_OD+filename, encoding='UTF-8', index=False) #导出表格
-            plot_path = args.out_OD+'\\OD去向分布_'+O_name+'.jpg'
+            plot_path = args.out_OD+'\\OD去向分布地_'+O_name+'.jpg'
             args.title = 'OD去向分布(O点:'+O_name+' D点:'+D_name+')'
             if args.pt0 == 'OD图':
                 OD_Linestring(dfy2, df_O, plot_path, '数量', args, dfy)
@@ -548,7 +550,7 @@ def main():
             elif args.pt0 == '样方密度图':
                 df_D = OD_plot(temp, dfy2, 'D') #转换描点范围
             filename = '\OD来源分布_'+O_name+'.csv'
-            plot_path = args.out_OD+'\\OD来源分布_'+O_name+'.jpg'
+            plot_path = args.out_OD+'\\OD来源分布地_'+O_name+'.jpg'
             args.title = 'OD来源分布(O点:'+D_name+' D点:'+O_name+')'
             if args.pt0 == 'OD图':
                 OD_Linestring(dfy2, df_D, plot_path, '数量', args, dfy)
@@ -997,10 +999,12 @@ def reload_point(data, geofile):
     dfy = gpd.read_file(geofile)
     dfx = gpd.GeoDataFrame(df, geometry = gpd.points_from_xy(df['x'], df['y']))
     dfx.crs = 'EPSG:4490' #按地理坐标系读取
-    if dfy.crs == 'epsg:4547':
+    if str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger CM 114'):
         dfx = dfx.to_crs(epsg=4547) #转投影坐标
-    elif dfy.crs == 'epsg:4526':
+        dfy = dfy.to_crs(epsg=4547) #转投影坐标
+    elif str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger zone 38'):
         dfx = dfx.to_crs(epsg=4526) #转投影坐标
+        dfy = dfy.to_crs(epsg=4526) #转投影坐标
     return dfx, dfy
 
 # OD只出图
@@ -1012,9 +1016,11 @@ def OD_reload_point(data, geofile, signal):
     elif signal == 'D':
         df_reverse = gpd.GeoDataFrame(df, geometry = gpd.points_from_xy(df['O_x'], df['O_y'])) 
     df_reverse.crs = 'EPSG:4490' #按WGS84读取
-    if dfy.crs == 'epsg:4547':
+    if str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger CM 114'):
         df_reverse = df_reverse.to_crs(epsg=4547) #转投影坐标
-    elif dfy.crs == 'epsg:4526':
+        df_reverse = df_reverse.to_crs(epsg=4547) #转投影坐标
+    elif str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger zone 38'):
+        df_reverse = df_reverse.to_crs(epsg=4526) #转投影坐标
         df_reverse = df_reverse.to_crs(epsg=4526) #转投影坐标
     return df_reverse, dfy
 
@@ -1070,10 +1076,13 @@ def intersect(df, dfy):
     print('正在执行空间相交...')
     dfx = gpd.GeoDataFrame(df, geometry = gpd.points_from_xy(df['x'], df['y']))
     dfx.crs = 'EPSG:4490' #按地理坐标系读取
-    if dfy.crs == 'epsg:4547':
+    if str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger CM 114'):
         dfx = dfx.to_crs(epsg=4547) #转投影坐标
-    elif dfy.crs == 'epsg:4526':
+        dfy = dfy.to_crs(epsg=4547) #转投影坐标
+    elif str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger zone 38'):
         dfx = dfx.to_crs(epsg=4526) #转投影坐标
+        dfy = dfy.to_crs(epsg=4526) #转投影坐标
+
     if dfx.columns.__contains__('index_right'):
         dfx.drop(['index_right'], axis=1, inplace=True)
     dfb = gpd.sjoin(dfx, dfy, op='intersects') #执行相交
@@ -1100,26 +1109,51 @@ def merge_num(num, df):
 
 #常住数量专用
 def merge_longstay(df, args):
-    if args.num_without and args.opt3:
+    if args.num_without1 and args.num_without2 and args.lw_ratio and args.opt3:
         print('正在计算居住且工作人口数量...')
-        if args.num_without.__contains__('.txt'):
-            df2 = pd.read_csv(args.num_without, sep="\t")
+        if args.num_without1.__contains__('.txt'):
+            df2 = pd.read_csv(args.num_without1, sep="\t")
         else:
-            df2 = pd.read_csv(args.num_without)
-            df2.drop(columns=['x','y'],inplace=True)
+            df2 = pd.read_csv(args.num_without1)
+            df2.drop(columns=['x','y'],inplace=True)   
+        if args.num_without2.__contains__('.txt'):
+            df3 = pd.read_csv(args.num_without2, sep="\t")
+        else:
+            df3 = pd.read_csv(args.num_without2)
+            df3.drop(columns=['x','y'],inplace=True)
+        if args.lw_ratio.__contains__('.txt'):
+            df4 = pd.read_csv(args.lw_ratio, sep="\t")
+        else:
+            df4 = pd.read_csv(args.lw_ratio)
+            df4.drop(columns=['x','y'],inplace=True)
+         
         if df['人口类型'].iloc[0] == 'home':
-            if df2['人口类型'].iloc[0] == 'liveWithoutWork':
+            if (df2['人口类型'].iloc[0] == 'liveWithoutWork') and (df3['人口类型'].iloc[0] == 'workWithoutLive'):
                 df2.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','居住不工作人数']
                 df2.drop(columns=['网格x坐标','网格y坐标','人口类型'],inplace=True)
-                df_final = pd.merge(df, df2, on = ['日期','区域名称','网格ID'], how = "outer")
-                df_final['居住且工作人数'] = df_final['人数']-df_final['居住不工作人数']
+                df3.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','工作不居住人数']
+                df3.drop(columns=['网格x坐标','网格y坐标','人口类型'],inplace=True)
+                df4.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','工作人数']
+                df4.drop(columns=['网格x坐标','网格y坐标','人口类型'],inplace=True)
+
+                dfs = [df,df2,df3,df4]
+                df_final = reduce(lambda left,right: pd.merge(left,right,on=['日期','区域名称','网格ID'],how = "outer"), dfs)
+                df_final.fillna(value=0, inplace=True)
+                df_final['居住且工作人数'] = (df_final['人数']+df_final['工作人数']-df_final['居住不工作人数']-df_final['工作不居住人数'])/2
                 df_final['居住人数'] = df_final['人数']
         elif df['人口类型'].iloc[0] == 'work':
-            if df2['人口类型'].iloc[0] == 'workWithoutLive':
+            if (df2['人口类型'].iloc[0] == 'workWithoutLive') and (df3['人口类型'].iloc[0] == 'liveWithoutWork'):
                 df2.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','工作不居住人数']
                 df2.drop(columns=['网格x坐标','网格y坐标','人口类型'],inplace=True)
-                df_final = pd.merge(df, df2, on = ['日期','区域名称','网格ID'], how = "outer")
-                df_final['居住且工作人数'] = df_final['人数']-df_final['工作不居住人数']
+                df3.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','居住不工作人数']
+                df3.drop(columns=['网格x坐标','网格y坐标','人口类型'],inplace=True)
+                df4.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','居住人数']
+                df4.drop(columns=['网格x坐标','网格y坐标','人口类型'],inplace=True)
+                
+                dfs = [df,df2,df3,df4]
+                df_final = reduce(lambda left,right: pd.merge(left,right,on=['日期','区域名称','网格ID'],how = "outer"), dfs)
+                df_final.fillna(value=0, inplace=True)
+                df_final['居住且工作人数'] = (df_final['人数']+df_final['居住人数']-df_final['居住不工作人数']-df_final['工作不居住人数'])/2
                 df_final['工作人数'] = df_final['人数']
         df_final.drop(columns=['网格x坐标','网格y坐标','人口类型','人数'],inplace=True)
         print('居住且工作人口计算完成!')
@@ -1138,9 +1172,7 @@ def merge_longstay(df, args):
         if df_final.columns.__contains__('人数') and df_final.columns.__contains__('home'):
             df_final.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','work','x','y','home']
         elif df_final.columns.__contains__('人数') and df_final.columns.__contains__('work'):
-            df_final.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','home','x','y','work']        
-    else:
-        df_final = df
+            df_final.columns = ['日期','区域名称','网格ID','网格x坐标','网格y坐标','人口类型','home','x','y','work']
     return df_final
 
 def calc_ratio(df):
@@ -1232,10 +1264,12 @@ def O_intersect(df, dfy):
     if dfx.columns.__contains__('index_left'):
         dfx.drop(['index_left'], axis=1, inplace=True)
     dfx.crs = 'EPSG:4490' #按WGS84读取
-    if dfy.crs == 'epsg:4547':
+    if str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger CM 114') :
         dfx = dfx.to_crs(epsg=4547) #转投影坐标
-    elif dfy.crs == 'epsg:4526':
+        dfy = dfy.to_crs(epsg=4547) #转投影坐标
+    elif str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger zone 38'):
         dfx = dfx.to_crs(epsg=4526) #转投影坐标
+        dfy = dfy.to_crs(epsg=4526) #转投影坐标
     dfb = gpd.sjoin(dfx, dfy, op='intersects') #执行相交
     if dfb.columns.__contains__('index_right'):
         dfb.drop(['index_right'], axis=1, inplace=True)
@@ -1245,10 +1279,12 @@ def D_intersect(df, dfy):
     print('正在执行终点范围空间相交...')
     dfx = gpd.GeoDataFrame(df, geometry = gpd.points_from_xy(df['D_x'], df['D_y']))
     dfx.crs = 'EPSG:4490' #按WGS84读取
-    if dfy.crs == 'epsg:4547':
+    if str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger CM 114'):
         dfx = dfx.to_crs(epsg=4547) #转投影坐标
-    elif dfy.crs == 'epsg:4526':
+        dfy = dfy.to_crs(epsg=4547) #转投影坐标
+    elif str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger zone 38'):
         dfx = dfx.to_crs(epsg=4526) #转投影坐标
+        dfy = dfy.to_crs(epsg=4526) #转投影坐标
     dfb = gpd.sjoin(dfx, dfy, op='intersects') #执行相交
     if dfb.columns.__contains__('index_right'):
         dfb.drop(['index_right'], axis=1, inplace=True)
@@ -1260,9 +1296,11 @@ def OD_plot(dfb, dfy, signal):
     elif signal == 'D':
         df_reverse = gpd.GeoDataFrame(dfb, geometry = gpd.points_from_xy(dfb['O_x'], dfb['O_y']))
     df_reverse.crs = 'EPSG:4490' #按WGS84读取
-    if dfy.crs == 'epsg:4547':
+    if str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger CM 114'):
         df_reverse = df_reverse.to_crs(epsg=4547) #转投影坐标
-    elif dfy.crs == 'epsg:4526':
+        df_reverse = df_reverse.to_crs(epsg=4547) #转投影坐标
+    elif str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger zone 38'):
+        df_reverse = df_reverse.to_crs(epsg=4526) #转投影坐标
         df_reverse = df_reverse.to_crs(epsg=4526) #转投影坐标
     return df_reverse
 
@@ -1339,13 +1377,15 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
     if dfb.columns.__contains__('index_right'):
         del dfb['index_right']
     #坐标系
-    if dfy.crs == 'epsg:4547':
+    if str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger CM 114'):
         sys_proj = 4547
-    elif dfy.crs == 'epsg:4526':
+    elif str(dfy.crs).__contains__('CGCS2000 / 3-degree Gauss-Kruger zone 38'):
         sys_proj = 4526
     else:
         sys_proj = 4547
     #加载底图
+    ###
+    
     fig = plt.figure(figsize=(14, 8))
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.epsg(sys_proj))
     #x0, x1, y0, y1
@@ -1360,6 +1400,8 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
         request = MB_vec_backup()
     ax.add_image(request, 15)
     plt.suptitle(args.title, fontsize=18) #最高级别标题
+    
+    ###
     if args.cellsize == '自定义范围':
         if plot_path.__contains__('居住人口样方密度') or plot_path.__contains__('就业人口样方密度'):
             pops = int(dfb[variable].sum())
@@ -1415,6 +1457,12 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
         args.userbin = '15,30,45,60'
     else:
         dfo = dfo[dfo[variable]>=args.vmin] #按最小值筛选
+    
+    path = plot_path.split('.jpg', 1)[0]
+    dfo.to_csv(path+'.csv', index=False, encoding='ANSI')
+    
+    ###
+    
     #绘制OD分析范围
     if AOI is not None: 
         AOI = AOI.to_crs(epsg=sys_proj)
@@ -1448,6 +1496,8 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
     ax.legend(handles = LegendElement, bbox_to_anchor=(1,0), loc='lower left', fontsize=10, title=variable, shadow=False)
     ax.axis('off')
     fig.savefig(plot_path, dpi=400)
+    
+    ###
 
 def export_pie(dfb, plot_path, args):
     print('正在绘图中...')
