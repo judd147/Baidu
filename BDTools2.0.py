@@ -3,7 +3,7 @@
 BDTools V2.0
 @Liyao Zhang
 Start Date 1/10/2022
-Last Edit 6/17/2022
+Last Edit 7/29/2022
 
 地理坐标系 EPSG 4326/4490 投影坐标系 EPSG 4547/4526
 常住人口自定义断点 100米网格 80,200,400,800；500米网格 2000,5000,10000,20000
@@ -19,6 +19,7 @@ from functools import reduce
 from gooey import Gooey, GooeyParser
 from GCS_Conversion import gcj2wgs
 from shapely.geometry import Point, Polygon, LineString
+from geovoronoi import voronoi_regions_from_coords, points_to_coords
 import cartopy.io.img_tiles as cimgt
 import cartopy.crs as ccrs
 from palettable.cmocean.sequential import Dense_20
@@ -317,19 +318,22 @@ def main():
         
     #客流画像
     if args.por_pop and args.por_pop_geo and not args.replot:
+        print('分析类型:客流画像')
         geos = args.por_pop_geo
+        df, dfy_fake = read_file(args.por_pop)
+        print('文件读取完成!')
+        if args.wgs:
+            df = to_wgs(df)
+            print('坐标转换完成!')
+        if args.num and args.opt2:
+            df = merge_num(args.num, df)
+            print('客流数量合并完成!')
+        
         for i in range(len(geos)):
             args.por_pop_geo = geos[i]
             name = parse_path(args.por_pop_geo)
-            print('分析类型:客流画像')
-            df, dfy = read_file(args.por_pop, args.por_pop_geo)
-            print('文件读取完成!')
-            if args.wgs:
-                df = to_wgs(df)
-                print('坐标转换完成!')
-            if args.num and args.opt2:
-                df = merge_num(args.num, df)
-                print('客流数量合并完成!')
+            dfy = gpd.read_file(args.por_pop_geo)
+    
             dfb = intersect(df, dfy)
             print('空间相交完成!')
             dfb.to_csv(args.out_por_pop+'\客流画像_'+name+'.csv', encoding='UTF-8', index=False)
@@ -1033,7 +1037,7 @@ def parse_path(path):
         name = temp[0]
         return name
 
-def read_file(data, geofile):
+def read_file(data, geofile='name'):
     print('正在读取文件...')
     if data.__contains__('.txt'):
         df = pd.read_csv(data, sep="\t")
@@ -1044,7 +1048,7 @@ def read_file(data, geofile):
     if geofile.__contains__('.shp'):
         dfy = gpd.read_file(geofile)
     else:
-        print('非法范围文件类型！')        
+        dfy = None
     return df, dfy
 
 def to_wgs(df):
@@ -1388,8 +1392,10 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
     
     fig = plt.figure(figsize=(14, 8))
     ax = fig.add_subplot(1, 1, 1, projection=ccrs.epsg(sys_proj))
+    
     #x0, x1, y0, y1
-    ax.set_extent([dfy['geometry'].total_bounds[0]-600, dfy['geometry'].total_bounds[2]+600, dfy['geometry'].total_bounds[1]-600, dfy['geometry'].total_bounds[3]+600],crs=ccrs.epsg(sys_proj))
+    ax.set_extent([dfy['geometry'].total_bounds[0]-600, dfy['geometry'].total_bounds[2]+600, dfy['geometry'].total_bounds[1]-600, dfy['geometry'].total_bounds[3]+600], crs=ccrs.epsg(sys_proj))
+
     if args.basemap == '天地图矢量':
         request = TDT_vec()
     elif args.basemap == '天地图影像':
@@ -1415,8 +1421,8 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
         plt.title(subtitle, fontsize=15) #副标题
         jiedao = gpd.read_file(args.custom)
         dfo = gpd.sjoin(jiedao, dfb, op='contains')
+        
     else:
-        #绘制渔网图
         if plot_path.__contains__('居住人口样方密度') or plot_path.__contains__('就业人口样方密度'):
             pops = int(dfb[variable].sum())
             area = round((dfy.area/10**6).sum(),2)
@@ -1427,20 +1433,34 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
         else:
             subtitle = '时间：'+str(dfb['日期'].iloc[0])+'  网格大小：'+str(args.cellsize)+'米x'+str(args.cellsize)+'米'
         plt.title(subtitle, fontsize=15) #副标题
-        coord1 = (dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[3]+100)
-        coord3 = (dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100)
-        coord2 = (coord3[0],coord1[1])
-        coord4 = (coord1[0],coord3[1])
-        rectangle = Polygon([coord1,coord2,coord3,coord4])
-        rectangle = gpd.GeoDataFrame([rectangle],columns=['geometry'])
-        rectangle = rectangle.set_crs(epsg=sys_proj)
-        coords = rectangle['geometry'].bounds.values[0]
-        loc_all = '{},{},{},{}'.format(coords[0],coords[3],coords[2],coords[1])
-        nets = lng_lat(loc_all, args.cellsize)
-        netfish = gpd.GeoDataFrame([getPolygon(i[0],i[1]) for i in nets],columns=['geometry'])
-        netfish = netfish.set_crs(epsg=sys_proj)
-        netfish = netfish.reset_index()
-        dfo = gpd.sjoin(netfish, dfb, op='contains') #渔网与dfb空间相交
+        
+        if args.cellsize == 100:
+            #绘制泰森多边形
+            dfy = dfy.dissolve()
+            coords = points_to_coords(dfb.geometry)
+            area_shape = dfy.iloc[0].geometry
+            region_polys, region_pts = voronoi_regions_from_coords(coords, area_shape)
+            voro_polys = gpd.GeoDataFrame(geometry=list(region_polys.values()), crs='epsg:4547')
+            if dfb.columns.__contains__('index_right'):
+                del dfb['index_right']
+            dfo = gpd.sjoin(voro_polys, dfb, op='contains') #泰森多边形与dfb空间相交
+        else:
+            #绘制渔网图
+            coord1 = (dfy['geometry'].total_bounds[0]-100, dfy['geometry'].total_bounds[3]+100)
+            coord3 = (dfy['geometry'].total_bounds[2]+100, dfy['geometry'].total_bounds[1]-100)
+            coord2 = (coord3[0],coord1[1])
+            coord4 = (coord1[0],coord3[1])
+            rectangle = Polygon([coord1,coord2,coord3,coord4])
+            rectangle = gpd.GeoDataFrame([rectangle],columns=['geometry'])
+            rectangle = rectangle.set_crs(epsg=sys_proj)
+            coords = rectangle['geometry'].bounds.values[0]
+            loc_all = '{},{},{},{}'.format(coords[0],coords[3],coords[2],coords[1])
+            nets = lng_lat(loc_all, args.cellsize)
+            netfish = gpd.GeoDataFrame([getPolygon(i[0],i[1]) for i in nets],columns=['geometry'])
+            netfish = netfish.set_crs(epsg=sys_proj)
+            netfish = netfish.reset_index()
+            dfo = gpd.sjoin(netfish, dfb, op='contains') #渔网与dfb空间相交
+
     #合并网格
     if args.cellsize != 100:
         dfo = dfo.reset_index()
@@ -1451,6 +1471,7 @@ def export_plot(dfy, dfb, plot_path, variable, args, AOI=None):
         del dfo[variable]
         dfo = pd.merge(dfo, df_index, how='inner', on='index')
         dfo.drop_duplicates(subset=['index'], keep='first', inplace=True)
+        
     #通勤时间
     if dfo.columns.__contains__('平均通勤时间(min)'):
         args.scheme = 'user_defined'
